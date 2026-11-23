@@ -103,6 +103,22 @@ converge_touchscreens() {
     done
 }
 
+# The config file greetd normally runs with: the -c/--config argument of
+# ExecStart in greetd.service (and its drop-ins in /etc and /usr/lib, not
+# the temporary one of Converge in /run), else /etc/greetd/config.toml.
+converge_greetd_config() {
+    _cfg=""
+    _frag=$(systemctl show -p FragmentPath --value greetd.service 2>/dev/null)
+    for _f in "$_frag" /usr/lib/systemd/system/greetd.service.d/*.conf \
+              /etc/systemd/system/greetd.service.d/*.conf; do
+        [ -f "$_f" ] || continue
+        _c=$(sed -n -e 's/^ExecStart=.* --config[ =]\([^ ]*\).*/\1/p' \
+                    -e 's/^ExecStart=.* -c \([^ ]*\).*/\1/p' "$_f" | tail -n1)
+        [ -n "$_c" ] && _cfg=$_c
+    done
+    echo "${_cfg:-/etc/greetd/config.toml}"
+}
+
 converge_log() {
     # $1 = tag, rest = message
     _t=$1

@@ -20,7 +20,7 @@
 . /usr/lib/converge/common.sh
 converge_load_system_conf
 
-GREETD_CONFIG=/etc/greetd/config.toml
+GREETD_CONFIG=$(converge_greetd_config)
 DROPIN_DIR=/run/systemd/system/greetd.service.d
 DROPIN="$DROPIN_DIR/zz-converge.conf"
 DOCKED_CONFIG="$CONVERGE_RUN/greetd-docked.toml"
@@ -62,7 +62,14 @@ write_greetd_config() {
     greeter=$(greetd_value default_session command)
     greeter_user=$(greetd_value default_session user)
     [ -n "$vt" ] || vt=7
-    [ -n "$greeter" ] || greeter='"agreety --cmd /bin/sh"'
+    if [ -z "$greeter" ]; then
+        log "WARNING: no [default_session] in $GREETD_CONFIG"
+        if [ -x /usr/libexec/phrog-greetd-session ]; then
+            greeter='"/usr/libexec/phrog-greetd-session"'
+        else
+            greeter='"agreety --cmd /bin/sh"'
+        fi
+    fi
     [ -n "$greeter_user" ] || greeter_user='"greetd"'
     mkdir -p "$CONVERGE_RUN"
     cat >"$1" <<EOF
@@ -354,6 +361,7 @@ status() {
     echo
     echo "CPU governors:      $(cat /sys/devices/system/cpu/cpufreq/policy*/scaling_governor 2>/dev/null | sort | uniq -c | awk '{printf "%sx %s  ", $1, $2}')"
     echo "Performance mode:   $(if [ -f "$GOVERNORS_SAVED" ]; then echo on; else echo off; fi)  (PERFORMANCE=$PERFORMANCE)"
+    echo "greetd config:      $GREETD_CONFIG"
     echo "greetd:             $(systemctl is-active greetd 2>/dev/null)  ($(sed -n 's/^ExecStart=greetd -c //p' "$DROPIN" 2>/dev/null))"
     echo
     if [ -n "$u" ]; then

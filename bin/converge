@@ -389,14 +389,15 @@ cmd_doctor() {
     else
         fail "no user found; run converge setup"
     fi
-    if [ ! -e /etc/greetd/config.toml ]; then
-        fail "/etc/greetd/config.toml missing"
-    elif [ ! -r /etc/greetd/config.toml ]; then
-        ok "greetd config exists (not readable for you; converge-switch reads it as root)"
-    elif grep -q '^[[:space:]]*\[default_session\]' /etc/greetd/config.toml; then
-        ok "greetd config has a default_session (greeter)"
+    gc=$(converge_greetd_config)
+    if [ ! -e "$gc" ]; then
+        fail "greetd config $gc not found (see: systemctl cat greetd)"
+    elif [ ! -r "$gc" ]; then
+        ok "greetd config $gc (not readable for you; converge-switch reads it as root)"
+    elif grep -q '^[[:space:]]*\[default_session\]' "$gc"; then
+        ok "greetd config $gc has a default_session (greeter)"
     else
-        fail "/etc/greetd/config.toml has no [default_session]"
+        fail "greetd config $gc has no [default_session]"
     fi
     if [ "$(systemctl is-enabled converge-switch.service 2>/dev/null)" = enabled ]; then
         ok "converge-switch.service enabled"
