@@ -1,0 +1,76 @@
+#!/bin/sh
+# Start Phosh from greetd (automatic login after undocking).
+#
+# Sets the same environment the greeter uses for the Phosh session (see
+# DesktopNames in /usr/share/wayland-sessions/phosh.desktop) and locks the
+# session as soon as Phosh runs, so you land on the Phosh lock screen.
+
+. /usr/lib/converge/common.sh
+
+export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_DESKTOP=phosh
+export XDG_CURRENT_DESKTOP=Phosh:GNOME
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
+
+log() { echo "converge-phosh-session: $*"; }
+
+log "starting phosh-session (session ${XDG_SESSION_ID:-?})"
+
+# Make sure the Hyprland session target is gone, otherwise gnome-session
+# refuses to start ("A graphical session is already running")
+systemctl --user stop converge-hyprland-session.target 2>/dev/null
+
+ss_call() {
+    gdbus call --session --dest org.gnome.ScreenSaver \
+        --object-path /org/gnome/ScreenSaver \
+        --method "org.gnome.ScreenSaver.$1" 2>/dev/null
+}
+
+wait_for_phosh() {
+    i=0
+    while [ $i -lt 60 ]; do
+        ss_call GetActive >/dev/null && return 0
+        sleep 0.5
+        i=$((i + 1))
+    done
+    return 1
+}
+
+# In the background: wait for the Phosh lock service, lock, and verify.
+# (logind locking does not work here: the session may be registered as tty.)
+(
+    wait_for_phosh
+    sleep 1
+    try=0
+    while [ $try -lt 5 ]; do
+        ss_call Lock >/dev/null
+        sleep 1
+        case "$(ss_call GetActive)" in
+            *true*) log "session locked (ScreenSaver)"; exit 0 ;;
+        esac
+        try=$((try + 1))
+    done
+    # Last resort: logind
+    if [ -n "$XDG_SESSION_ID" ]; then
+        loginctl lock-session "$XDG_SESSION_ID" 2>/dev/null
+    fi
+    log "WARNING: locking via ScreenSaver not confirmed (GetActive: $(ss_call GetActive))"
+) &
+
+# Safety net: if Hyprland crashed, say so (once per crash)
+(
+    [ -f "$CONVERGE_RUN/crash" ] || exit 0
+    shown="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/converge-crash-shown"
+    when=$(cat "$CONVERGE_RUN/crash")
+    [ "$(cat "$shown" 2>/dev/null)" = "$when" ] && exit 0
+    wait_for_phosh
+    sleep 3
+    notify-send -a Converge -i dialog-warning \
+        -h "string:desktop-entry:$CONVERGE_APP_ID" \
+        "Desktop mode failed" \
+        "Hyprland stopped right after starting ($when). You are back on the phone. Details: converge status" \
+        && echo "$when" >"$shown"
+    log "crash notification shown ($when)"
+) &
+
+exec "$(command -v phosh-session || echo /usr/sbin/phosh-session)"

@@ -1,0 +1,60 @@
+#!/bin/sh
+# converge waybar-modem: mobile network for Waybar (signal + 2G/3G/4G/5G),
+# like the Phosh top bar. Uses ModemManager (mmcli).
+# Output: JSON for a Waybar custom module (return-type json).
+
+ICON_SIGNAL=$(printf '\357\200\222')   # Font Awesome "signal" (U+F012)
+
+json() {
+    # $1 = text, $2 = tooltip, $3 = class
+    t=$(printf '%s' "$2" | tr -d '"\\' | sed ':a;N;$!ba;s/\n/\\n/g')
+    printf '{"text":"%s","tooltip":"%s","class":"%s"}\n' "$1" "$t" "$3"
+}
+
+kv=$(mmcli -m any -K 2>/dev/null)
+if [ -z "$kv" ]; then
+    json "" "No modem" "no-modem"
+    exit 0
+fi
+
+value() {
+    printf '%s\n' "$kv" | sed -n "s/^$1 *: *//p" | head -n1
+}
+
+state=$(value 'modem\.generic\.state')
+quality=$(value 'modem\.generic\.signal-quality\.value')
+# All technologies together (with 5G NSA the modem reports "lte" and "5gnr")
+tech=$(printf '%s\n' "$kv" | sed -n 's/^modem\.generic\.access-technologies\.value\[[0-9]*\] *: *//p' | tr '\n' ' ')
+operator=$(value 'modem\.3gpp\.operator-name')
+[ "$operator" = "--" ] && operator=""
+
+case "$state" in
+    registered|connected|connecting|disconnecting) ;;
+    *)
+        json "" "Mobile network: $state" "no-signal"
+        exit 0 ;;
+esac
+
+# Highest generation wins, like in Phosh
+case " $tech " in
+    *" 5gnr "*)                                         gen=5G ;;
+    *" lte "*|*" lte-cat-m "*|*" lte-nb-iot "*)         gen=4G ;;
+    *" umts "*|*" hsdpa "*|*" hsupa "*|*" hspa "*|*" hspa-plus "*|*" evdo"*) gen=3G ;;
+    *" gsm "*|*" gsm-compact "*|*" gprs "*|*" edge "*|*" 1xrtt "*) gen=2G ;;
+    *)                                                  gen="" ;;
+esac
+
+[ -n "$quality" ] || quality=0
+if   [ "$quality" -ge 60 ]; then class=good
+elif [ "$quality" -ge 30 ]; then class=fair
+else class=weak
+fi
+
+data=""
+[ "$state" = "connected" ] && data=" (mobile data active)"
+
+text="$ICON_SIGNAL"
+[ -n "$gen" ] && text="$text $gen"
+
+json "$text" "${operator:-Mobile network} ${gen}
+Signal ${quality}%${data}" "$class"

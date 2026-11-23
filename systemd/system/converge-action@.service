@@ -1,0 +1,10 @@
+# Started from the Hyprland session:
+#   converge-action@phone.service     Hyprland closed  -> back to Phosh
+#   converge-action@fallback.service  Hyprland crashed -> back to Phosh
+[Unit]
+Description=Converge: %i
+Documentation=https://github.com/jeweet/converge
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/converge/switch %i

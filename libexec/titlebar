@@ -1,0 +1,21 @@
+#!/bin/sh
+# converge titlebar: GTK titlebar buttons per session.
+#
+#   titlebar desktop   buttons for the desktop (Hyprland)
+#   titlebar phosh     back to the Phosh layout
+#
+# Phosh and Hyprland share the same GNOME settings, so this follows the
+# session: "desktop start" calls "desktop", and an autostart entry that only
+# runs in Phosh calls "phosh". Set TITLEBAR_DESKTOP / TITLEBAR_PHOSH in
+# ~/.config/converge/converge.conf.
+
+. /usr/lib/converge/common.sh
+converge_load_conf
+
+case "$1" in
+    desktop) layout=$TITLEBAR_DESKTOP ;;
+    phosh)   layout=$TITLEBAR_PHOSH ;;
+    *) echo "usage: $0 desktop|phosh" >&2; exit 2 ;;
+esac
+
+gsettings set org.gnome.desktop.wm.preferences button-layout "$layout"

@@ -1,0 +1,32 @@
+/*
+ * Converge: rofi settings for the app launcher (packaged default).
+ * Override: copy to ~/.config/converge/rofi/config.rasi
+ */
+configuration {
+    modi: "drun,run";
+    show-icons: true;
+    /* PNG copies made by converge rofi-icons (falls back to Adwaita) */
+    icon-theme: "Converge";
+    drun-display-format: "{name}";
+    display-drun: "";
+    /* Alphabetical list (no "frequently used" on top). While typing, the
+       best match moves to the top and is selected: type + Enter starts it */
+    disable-history: true;
+    sort: true;
+    sorting-method: "fzf";
+    matching: "fuzzy";
+    /* Mouse: no selection on hover, one click opens the app */
+    hover-select: false;
+    me-select-entry: "";
+    me-accept-entry: "MousePrimary";
+    /* Scroll wheel/touchpad: scroll smoothly per row instead of per page */
+    scroll-method: 1;
+    kb-cancel: "Escape";
+    /* Clicking next to the panel closes rofi */
+    click-to-exit: true;
+    /* Open faster: read .desktop files from a cache (cleared on every dock) */
+    drun-use-desktop-cache: true;
+    drun-reload-desktop-cache: false;
+}
+
+@theme "/usr/share/converge/config/rofi/theme.rasi"

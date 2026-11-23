@@ -1,0 +1,19 @@
+// Converge: let the user on the device itself (local, active session),
+// without a password:
+//  - switch to desktop mode (Converge app)
+//  - go back to the phone from Hyprland (closing it, or the safety net)
+// Only these units, only "start".
+var converge_units = [
+    "converge-dock.service",
+    "converge-action@phone.service",
+    "converge-action@fallback.service"
+];
+
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        converge_units.indexOf(action.lookup("unit")) >= 0 &&
+        action.lookup("verb") == "start" &&
+        subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+});

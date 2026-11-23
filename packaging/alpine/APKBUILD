@@ -1,0 +1,47 @@
+# Contributor: jeweet <https://github.com/jeweet>
+# Maintainer: jeweet <https://github.com/jeweet>
+pkgname=converge
+pkgver=0.1.0
+pkgrel=0
+pkgdesc="Phosh on the phone, Hyprland when docked: convergence for postmarketOS"
+url="https://github.com/jeweet/converge"
+arch="noarch"
+license="MIT"
+depends="
+	adwaita-icon-theme
+	font-awesome
+	gnome-console
+	greetd
+	gtk4.0
+	hypridle
+	hyprland
+	hyprlock
+	libadwaita
+	libnotify
+	phosh
+	py3-evdev
+	py3-gobject3
+	python3
+	rofi
+	swaybg
+	swaync
+	waybar
+	xdg-desktop-portal-gtk
+	xdg-desktop-portal-hyprland
+	"
+install="$pkgname.post-install $pkgname.post-upgrade $pkgname.pre-deinstall"
+# Tarball made by "make dist" from the git checkout
+source="$pkgname-$pkgver.tar.gz"
+options="!check" # no test suite
+builddir="$srcdir/$pkgname-$pkgver"
+
+build() {
+	return 0
+}
+
+package() {
+	make DESTDIR="$pkgdir" install
+}
+
+sha512sums="
+"

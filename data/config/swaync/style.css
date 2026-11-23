@@ -1,0 +1,298 @@
+/*
+ * Converge: swaync in Phosh/libadwaita style (dark, packaged default).
+ * Override: copy to ~/.config/converge/swaync/style.css, or create that file
+ * with @import url("/usr/share/converge/config/swaync/style.css"); and your
+ * own rules below it. Reload: swaync-client -rs
+ *
+ * Colors taken from libadwaita (dark theme).
+ */
+
+@define-color ph-bg        #242424;   /* window background           */
+@define-color ph-card      #363636;   /* card (notification)          */
+@define-color ph-card-hov  #3d3d3d;   /* card on hover                */
+@define-color ph-fg        #ffffff;   /* text                         */
+@define-color ph-fg-dim    rgba(255, 255, 255, 0.7);
+@define-color ph-border    rgba(255, 255, 255, 0.08);
+@define-color ph-accent    #3584e4;   /* GNOME blue                   */
+@define-color ph-critical  #e01b24;   /* red for critical notifications */
+
+* {
+  font-family: "Adwaita Sans", "Cantarell", "Font Awesome 6 Free", "Font Awesome 6 Brands", sans-serif;
+  font-size: 14px;
+}
+
+/* ---------- Popups ----------------------------------------------- */
+
+.notification-row {
+  outline: none;
+  margin: 0;
+  padding: 0;
+}
+
+.notification {
+  background: @ph-card;
+  color: @ph-fg;
+  border: 1px solid @ph-border;
+  border-radius: 14px;
+  margin: 8px 12px;
+  padding: 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+
+.notification:hover {
+  background: @ph-card-hov;
+}
+
+.notification.critical {
+  border: 1px solid @ph-critical;
+}
+
+.notification-content {
+  padding: 12px 14px;
+  background: transparent;
+}
+
+.summary {
+  font-size: 15px;
+  font-weight: bold;
+  color: @ph-fg;
+}
+
+.time {
+  font-size: 12px;
+  color: @ph-fg-dim;
+  margin-right: 24px;
+}
+
+.body {
+  font-size: 14px;
+  color: @ph-fg-dim;
+}
+
+.image,
+.app-icon {
+  border-radius: 10px;
+  margin-right: 6px;
+}
+
+.close-button {
+  background: rgba(255, 255, 255, 0.1);
+  color: @ph-fg;
+  border: none;
+  border-radius: 100px;
+  min-width: 24px;
+  min-height: 24px;
+  /* The button floats above the whole row, not inside the card: so add
+     the margin of .notification (8px 12px), plus 8px inset */
+  margin: 16px 20px 0 0;
+  padding: 0;
+  box-shadow: none;
+}
+
+.close-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Action buttons (Answer, Reply, ...) */
+.notification-action,
+.notification-default-action {
+  background: transparent;
+  color: @ph-fg;
+  border: none;
+  border-top: 1px solid @ph-border;
+  border-radius: 0;
+  margin: 0;
+  padding: 8px;
+  box-shadow: none;
+}
+
+.notification-action:hover,
+.notification-default-action:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.notification-action:first-child {
+  border-bottom-left-radius: 14px;
+}
+
+.notification-action:last-child {
+  border-bottom-right-radius: 14px;
+}
+
+/* Inline replies (Chatty) */
+.inline-reply-entry {
+  background: @ph-bg;
+  color: @ph-fg;
+  border: 1px solid @ph-border;
+  border-radius: 8px;
+  margin: 4px 0;
+  padding: 6px 8px;
+}
+
+.inline-reply-button {
+  background: @ph-accent;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  margin-left: 6px;
+  padding: 6px 12px;
+}
+
+/* ---------- Notification center ----------------------------------- */
+
+.control-center {
+  background: alpha(@ph-bg, 0.97);
+  color: @ph-fg;
+  border: 1px solid @ph-border;
+  border-radius: 18px;
+  padding: 6px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+}
+
+.control-center-list {
+  background: transparent;
+}
+
+.control-center .notification {
+  box-shadow: none;
+  margin: 6px 6px;
+}
+
+/* Same in the notification center (card margin 6px + 8px) */
+.control-center .close-button {
+  margin: 14px 14px 0 0;
+}
+
+.blank-window {
+  background: transparent;
+}
+
+/* Quick settings (like the Phosh quick settings) */
+.widget-buttons-grid {
+  margin: 6px 6px 2px 6px;
+  padding: 4px;
+}
+
+.widget-buttons-grid button {
+  background: @ph-card;
+  color: @ph-fg;
+  border: none;
+  border-radius: 100px;
+  margin: 4px;
+  padding: 10px 14px;
+  min-height: 24px;
+  box-shadow: none;
+}
+
+.widget-buttons-grid button:hover {
+  background: @ph-card-hov;
+}
+
+/* Toggle on = blue, like in Phosh */
+.widget-buttons-grid button.toggle:checked,
+.widget-buttons-grid button:checked {
+  background: @ph-accent;
+  color: #ffffff;
+}
+
+.widget-buttons-grid button.toggle:checked:hover,
+.widget-buttons-grid button:checked:hover {
+  background: shade(@ph-accent, 1.1);
+}
+
+/* Volume slider */
+.widget-volume {
+  background: @ph-card;
+  border-radius: 14px;
+  margin: 4px 10px 8px 10px;
+  padding: 8px 12px;
+}
+
+.widget-volume trough {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 100px;
+  min-height: 6px;
+}
+
+.widget-volume highlight {
+  background: @ph-accent;
+  border-radius: 100px;
+}
+
+.widget-volume slider {
+  background: #ffffff;
+  border-radius: 100px;
+  min-width: 16px;
+  min-height: 16px;
+}
+
+/* Title + "Clear all" */
+.widget-title {
+  margin: 10px 12px 4px 12px;
+  font-size: 18px;
+  font-weight: bold;
+  color: @ph-fg;
+}
+
+.widget-title > button {
+  font-size: 13px;
+  font-weight: normal;
+  background: rgba(255, 255, 255, 0.1);
+  color: @ph-fg;
+  border: none;
+  border-radius: 100px;
+  padding: 4px 14px;
+  box-shadow: none;
+}
+
+.widget-title > button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Do not disturb */
+.widget-dnd {
+  margin: 6px 12px 10px 12px;
+  font-size: 14px;
+  color: @ph-fg;
+}
+
+.widget-dnd > switch {
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.widget-dnd > switch:checked {
+  background: @ph-accent;
+}
+
+.widget-dnd > switch slider {
+  border-radius: 100px;
+  background: #ffffff;
+}
+
+/* Media player */
+.widget-mpris {
+  margin: 4px 6px 8px 6px;
+}
+
+.widget-mpris-player {
+  background: @ph-card;
+  border-radius: 14px;
+  padding: 10px;
+}
+
+.widget-mpris-title {
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.widget-mpris-subtitle {
+  font-size: 12px;
+  color: @ph-fg-dim;
+}
+
+/* Empty list ("No notifications") */
+.control-center-list-placeholder {
+  color: @ph-fg-dim;
+  opacity: 0.6;
+}

@@ -1,0 +1,675 @@
+#!/usr/bin/env python3
+"""converge touchpad: touchpad + keyboard on the phone screen in desktop mode.
+
+Runs as a fullscreen window on the phone screen and sends mouse and key
+events through /dev/uinput, as if a real mouse and keyboard were connected.
+It reads the touchscreen directly (Hyprland does not reliably deliver touch
+to this window, and layer-shell surfaces get no touch at all) and grabs it
+while open, so the touches do not also land somewhere else.
+
+Started and stopped with "converge touchpad on|off|toggle" (Super+T).
+
+Needs: py3-gobject3 gtk4.0 py3-evdev, access to /dev/uinput and the
+touchscreen for the active local user (see the Converge udev rules).
+
+Environment:
+  CONVERGE_INTERNAL          connector of the phone screen (default DSI-1)
+  CONVERGE_TOUCHSCREEN       name of the touchscreen device (default: detect)
+  CONVERGE_TOUCHPAD_SPEED    pointer speed (default 2.0)
+  CONVERGE_TOUCHPAD_DEBUG=1  log to stderr
+"""
+
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+try:
+    from evdev import UInput, ecodes as e
+except ImportError:
+    UInput = None
+    e = None
+
+APP_ID = "io.github.jeweet.Converge.Touchpad"
+SCREEN = os.environ.get("CONVERGE_INTERNAL", "DSI-1")
+TOUCHSCREEN_NAME = os.environ.get("CONVERGE_TOUCHSCREEN", "")
+SPEED = float(os.environ.get("CONVERGE_TOUCHPAD_SPEED", "2.0"))
+SCROLL_STEP = 18      # px of finger movement per scroll step
+TAP_DISTANCE = 10     # px: less = tap (click) instead of move
+TAP_TIME = 0.30       # s
+FOCUS_DELAY_MS = 40
+DEBUG = os.environ.get("CONVERGE_TOUCHPAD_DEBUG") == "1"
+DESKTOP = "/usr/libexec/converge/desktop"
+
+
+def dbg(*args):
+    if DEBUG:
+        print("touchpad:", *args, file=sys.stderr, flush=True)
+
+
+CSS = b"""
+window.touchpad { background: #000000; }
+.pad {
+  background: #1e1e1e;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.pad label { color: rgba(255,255,255,0.35); }
+.scroll {
+  background: #2a2a2a;
+  border-radius: 12px;
+}
+.key {
+  background: #363636; color: #ffffff;
+  border-radius: 10px; min-height: 38px; padding: 0 4px;
+  font-size: 15px; box-shadow: none; border: none;
+}
+.key:active, .key:checked, .key.pressed { background: #3584e4; }
+.mouse-button { min-height: 48px; }
+.mouse-button label { color: #ffffff; }
+.header label { color: #ffffff; font-weight: bold; }
+.error { color: #ff7b63; }
+"""
+
+# ---------- Hyprland IPC -------------------------------------------------------
+
+
+def hypr_socket():
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    if not sig:
+        return None
+    for base in (os.environ.get("XDG_RUNTIME_DIR", ""), "/tmp"):
+        path = os.path.join(base, "hypr", sig, ".socket.sock")
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def hypr(command):
+    path = hypr_socket()
+    if not path:
+        dbg("no Hyprland socket found (HYPRLAND_INSTANCE_SIGNATURE=%r)"
+            % os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"))
+        return ""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            s.connect(path)
+            s.sendall(command.encode())
+            data = b""
+            while True:
+                part = s.recv(65536)
+                if not part:
+                    break
+                data += part
+            return data.decode(errors="replace")
+    except OSError as error:
+        dbg("Hyprland IPC error:", error)
+        return ""
+
+
+def external_screen():
+    try:
+        for m in json.loads(hypr("j/monitors") or "[]"):
+            if not m.get("name", "").startswith(("DSI", "eDP")):
+                return m["name"]
+    except (ValueError, KeyError):
+        pass
+    return None
+
+
+# ---------- Virtual mouse + keyboard ----------------------------------------
+
+KEYS = {}
+if e is not None:
+    for c in "abcdefghijklmnopqrstuvwxyz":
+        KEYS[c] = getattr(e, "KEY_" + c.upper())
+    for c in "1234567890":
+        KEYS[c] = getattr(e, "KEY_" + c)
+    KEYS.update({
+        ",": e.KEY_COMMA, ".": e.KEY_DOT, "-": e.KEY_MINUS, "=": e.KEY_EQUAL,
+        "[": e.KEY_LEFTBRACE, "]": e.KEY_RIGHTBRACE, "\\": e.KEY_BACKSLASH,
+        ";": e.KEY_SEMICOLON, "'": e.KEY_APOSTROPHE, "/": e.KEY_SLASH,
+        "`": e.KEY_GRAVE,
+        "Esc": e.KEY_ESC, "Tab": e.KEY_TAB, "⌫": e.KEY_BACKSPACE,
+        "⏎": e.KEY_ENTER, "Space": e.KEY_SPACE,
+        "←": e.KEY_LEFT, "→": e.KEY_RIGHT, "↑": e.KEY_UP, "↓": e.KEY_DOWN,
+        "Del": e.KEY_DELETE,
+    })
+    MODIFIERS = {
+        "⇧": e.KEY_LEFTSHIFT, "Ctrl": e.KEY_LEFTCTRL,
+        "Alt": e.KEY_LEFTALT, "❖": e.KEY_LEFTMETA,
+    }
+else:
+    MODIFIERS = {}
+
+
+class Output:
+    def __init__(self):
+        self.error = None
+        self.mouse = self.kbd = None
+        if UInput is None:
+            self.error = "python-evdev is missing (sudo apk add py3-evdev)"
+            return
+        try:
+            self.mouse = UInput(
+                {e.EV_KEY: [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE],
+                 e.EV_REL: [e.REL_X, e.REL_Y, e.REL_WHEEL, e.REL_HWHEEL]},
+                name="converge-touchpad")
+            self.kbd = UInput(
+                {e.EV_KEY: sorted(set(KEYS.values()) | set(MODIFIERS.values()))},
+                name="converge-keyboard")
+        except (OSError, PermissionError) as error:
+            self.error = f"No access to /dev/uinput ({error.strerror or error})"
+
+    def move(self, dx, dy):
+        if self.mouse and (dx or dy):
+            self.mouse.write(e.EV_REL, e.REL_X, dx)
+            self.mouse.write(e.EV_REL, e.REL_Y, dy)
+            self.mouse.syn()
+
+    def scroll(self, steps):
+        if self.mouse and steps:
+            self.mouse.write(e.EV_REL, e.REL_WHEEL, steps)
+            self.mouse.syn()
+
+    def button(self, code, pressed):
+        dbg("mouse button", code, "down" if pressed else "up")
+        if self.mouse:
+            self.mouse.write(e.EV_KEY, code, 1 if pressed else 0)
+            self.mouse.syn()
+
+    def key(self, code, mods):
+        dbg("key", code, "mods", mods, "(no device)" if not self.kbd else "")
+        if not self.kbd:
+            return
+        for m in mods:
+            self.kbd.write(e.EV_KEY, m, 1)
+        self.kbd.write(e.EV_KEY, code, 1)
+        self.kbd.syn()
+        self.kbd.write(e.EV_KEY, code, 0)
+        for m in reversed(mods):
+            self.kbd.write(e.EV_KEY, m, 0)
+        self.kbd.syn()
+
+
+# ---------- Reading the touchscreen directly ----------------------------------
+
+
+class TouchSource:
+    def __init__(self):
+        self.error = None
+        self.dev = None
+        self.panel = None
+        self.slot = 0
+        self.slots = {}      # slot -> dict(id, x, y, new, gone, moved)
+        if e is None:
+            self.error = "python-evdev is missing"
+            return
+        try:
+            from evdev import InputDevice, list_devices
+        except ImportError:
+            self.error = "python-evdev is missing"
+            return
+        candidates = []
+        for path in list_devices():
+            try:
+                d = InputDevice(path)
+            except OSError:
+                continue
+            if TOUCHSCREEN_NAME and d.name == TOUCHSCREEN_NAME:
+                candidates.insert(0, d)
+                continue
+            multitouch = e.ABS_MT_POSITION_X in dict(
+                d.capabilities().get(e.EV_ABS, []))
+            # Touchscreens are "direct" devices; touchpads are not
+            direct = e.INPUT_PROP_DIRECT in d.input_props()
+            if multitouch and direct:
+                candidates.append(d)
+        if not candidates:
+            self.error = ("Touchscreen not readable (no access to "
+                          "/dev/input/event*? see the Converge udev rules)")
+            return
+        self.dev = candidates[0]
+        self.max_x = self.dev.absinfo(e.ABS_MT_POSITION_X).max + 1
+        self.max_y = self.dev.absinfo(e.ABS_MT_POSITION_Y).max + 1
+        try:
+            self.dev.grab()
+        except OSError as error:
+            dbg("grab failed:", error)
+        dbg("touchscreen:", self.dev.path, self.dev.name, self.max_x, self.max_y)
+
+    def start(self, panel):
+        self.panel = panel
+        GLib.io_add_watch(self.dev.fd, GLib.PRIORITY_DEFAULT,
+                          GLib.IOCondition.IN, self._read)
+
+    def stop(self):
+        if self.dev:
+            try:
+                self.dev.ungrab()
+            except OSError:
+                pass
+
+    def _read(self, *_a):
+        try:
+            for ev in self.dev.read():
+                self._handle(ev)
+        except BlockingIOError:
+            pass
+        except OSError as error:
+            dbg("touchscreen read error:", error)
+            return False
+        return True
+
+    def _current(self):
+        return self.slots.setdefault(self.slot, {"id": -1, "x": 0, "y": 0,
+                                                  "new": False, "gone": False,
+                                                  "moved": False})
+
+    def _handle(self, ev):
+        if ev.type == e.EV_ABS:
+            if ev.code == e.ABS_MT_SLOT:
+                self.slot = ev.value
+            elif ev.code == e.ABS_MT_TRACKING_ID:
+                s = self._current()
+                if ev.value == -1:
+                    s["gone"] = True
+                else:
+                    s.update(id=ev.value, new=True, gone=False)
+            elif ev.code == e.ABS_MT_POSITION_X:
+                s = self._current()
+                s["x"] = ev.value
+                s["moved"] = True
+            elif ev.code == e.ABS_MT_POSITION_Y:
+                s = self._current()
+                s["y"] = ev.value
+                s["moved"] = True
+        elif ev.type == e.EV_SYN and ev.code == e.SYN_REPORT:
+            width = self.panel.get_width() or 1
+            height = self.panel.get_height() or 1
+            for nr, s in list(self.slots.items()):
+                x = s["x"] * width / self.max_x
+                y = s["y"] * height / self.max_y
+                if s["new"]:
+                    self.panel.touch_down(nr, x, y)
+                elif s["gone"]:
+                    self.panel.touch_up(nr, x, y)
+                elif s["moved"]:
+                    self.panel.touch_move(nr, x, y)
+                s["new"] = s["moved"] = False
+                if s["gone"]:
+                    del self.slots[nr]
+
+
+# ---------- Window ------------------------------------------------------------
+
+KEYBOARD = [
+    ["Esc", "`", "-", "=", "[", "]", "\\", ";", "'", "/", "Del"],
+    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "⌫"],
+    ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+    ["a", "s", "d", "f", "g", "h", "j", "k", "l", "⏎"],
+    ["⇧", "z", "x", "c", "v", "b", "n", "m", ",", "."],
+    ["Ctrl", "Alt", "❖", "Tab", "Space", "←", "↑", "↓", "→"],
+]
+
+
+class Panel(Gtk.ApplicationWindow):
+    def __init__(self, app, monitor, output, source=None):
+        super().__init__(application=app)
+        self.output = output
+        self.source = source        # TouchSource: touchscreen read directly
+        self.targets = {}           # widget -> (kind, data)
+        self.touches = {}           # slot -> state of that finger
+        self.external = external_screen()
+        self.rest_x = self.rest_y = 0.0
+        self.previous = (0.0, 0.0)
+        self.scroll_previous = 0.0
+        self.scroll_rest = 0.0
+        self.start_time = 0.0
+        self.mod_buttons = {}
+        self.previous_window = None  # address of the focused window before the panel
+
+        self.add_css_class("touchpad")
+        self.set_title("Touchpad")
+        self.set_decorated(False)
+        self.fullscreen_on_monitor(monitor)
+        # Once shown: focus back to the external display
+        self.connect("map", lambda *_a: GLib.timeout_add(300, self._after_show))
+        # Track the focused window so we can return to it exactly after
+        # the panel is touched
+        GLib.timeout_add(250, self._track_focus)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(box, f"set_margin_{side}")(8)
+
+        # Header
+        header = Gtk.Box(spacing=8)
+        header.add_css_class("header")
+        header.append(Gtk.Label(label="Touchpad", xalign=0, hexpand=True))
+        self.kbd_button = Gtk.ToggleButton(label="⌨", active=True)
+        self.kbd_button.add_css_class("key")
+        self.kbd_button.connect("toggled", self.toggle_keyboard)
+        header.append(self.kbd_button)
+        close = Gtk.Button(label="✕")
+        close.add_css_class("key")
+        close.connect("clicked", self.close_panel)
+        header.append(close)
+        box.append(header)
+
+        for message in (output.error, source.error if source else None):
+            if message:
+                label = Gtk.Label(label=message, wrap=True)
+                label.add_css_class("error")
+                box.append(label)
+        self.targets[self.kbd_button] = ("button", None)
+        self.targets[close] = ("button", None)
+
+        # Touchpad + scroll strip
+        pad_row = Gtk.Box(spacing=8, vexpand=True)
+        pad = Gtk.Box(hexpand=True, vexpand=True)
+        pad.add_css_class("pad")
+        pad.append(Gtk.Label(label="Touchpad\ntap = click",
+                             justify=Gtk.Justification.CENTER,
+                             hexpand=True, vexpand=True))
+        drag = Gtk.GestureDrag()
+        drag.set_touch_only(False)
+        drag.connect("drag-begin", self.pad_begin)
+        drag.connect("drag-update", self.pad_update)
+        drag.connect("drag-end", self.pad_end)
+        pad.add_controller(drag)
+        self.targets[pad] = ("pad", None)
+        pad_row.append(pad)
+
+        scroll = Gtk.Box(vexpand=True)
+        scroll.set_size_request(44, -1)
+        scroll.add_css_class("scroll")
+        scroll.append(Gtk.Label(label="⇅", hexpand=True))
+        sdrag = Gtk.GestureDrag()
+        sdrag.connect("drag-begin", self.scroll_begin)
+        sdrag.connect("drag-update", self.scroll_update)
+        sdrag.connect("drag-end", lambda *a: self.focus_back())
+        scroll.add_controller(sdrag)
+        self.targets[scroll] = ("scroll", None)
+        pad_row.append(scroll)
+        box.append(pad_row)
+
+        # Mouse buttons (hold = drag, with a finger on the pad)
+        button_row = Gtk.Box(spacing=8, homogeneous=True)
+        if e is not None:
+            for label, code in (("Left", e.BTN_LEFT), ("Middle", e.BTN_MIDDLE),
+                                ("Right", e.BTN_RIGHT)):
+                button_row.append(self.mouse_button(label, code))
+        box.append(button_row)
+
+        # Keyboard
+        self.keys = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        for row in KEYBOARD:
+            r = Gtk.Box(spacing=4, homogeneous=False)
+            for k in row:
+                r.append(self.key_button(k))
+            self.keys.append(r)
+        box.append(self.keys)
+
+        self.set_child(box)
+
+        if self.source and self.source.dev:
+            self.source.start(self)
+            self.connect("close-request", lambda *_a: self.source.stop() or False)
+
+    # -- touches read directly from the touchscreen --
+
+    def _target(self, x, y):
+        w = self.pick(x, y, Gtk.PickFlags.DEFAULT)
+        while w is not None:
+            if w in self.targets:
+                return w
+            w = w.get_parent()
+        return None
+
+    def touch_down(self, slot, x, y):
+        w = self._target(x, y)
+        kind, data = self.targets.get(w, (None, None))
+        dbg("touch", slot, round(x), round(y), "->", kind)
+        self.touches[slot] = {"w": w, "kind": kind, "data": data,
+                              "x0": x, "y0": y, "x": x, "y": y,
+                              "t0": time.monotonic(), "scroll_rest": 0.0}
+        if kind == "mouse":
+            w.add_css_class("pressed")
+            self.output.button(data, True)
+        elif kind == "button":
+            w.add_css_class("pressed")
+
+    def touch_move(self, slot, x, y):
+        t = self.touches.get(slot)
+        if not t:
+            return
+        dx, dy = x - t["x"], y - t["y"]
+        t["x"], t["y"] = x, y
+        if t["kind"] == "pad":
+            fx = dx * SPEED + self.rest_x
+            fy = dy * SPEED + self.rest_y
+            ix, iy = int(fx), int(fy)
+            self.rest_x, self.rest_y = fx - ix, fy - iy
+            self.output.move(ix, iy)
+        elif t["kind"] == "scroll":
+            delta = dy + t["scroll_rest"]
+            steps = int(delta / SCROLL_STEP)
+            if steps:
+                self.output.scroll(steps)
+            t["scroll_rest"] = delta - steps * SCROLL_STEP
+
+    def touch_up(self, slot, x, y):
+        t = self.touches.pop(slot, None)
+        if not t:
+            return
+        w, kind = t["w"], t["kind"]
+        if kind == "pad":
+            if (abs(x - t["x0"]) < TAP_DISTANCE and abs(y - t["y0"]) < TAP_DISTANCE
+                    and time.monotonic() - t["t0"] < TAP_TIME):
+                self.output.button(e.BTN_LEFT, True)
+                self.output.button(e.BTN_LEFT, False)
+        elif kind == "mouse":
+            w.remove_css_class("pressed")
+            self.output.button(t["data"], False)
+        elif kind == "button":
+            w.remove_css_class("pressed")
+            # Only when released on the same button
+            if self._target(x, y) is w:
+                if isinstance(w, Gtk.ToggleButton):
+                    w.set_active(not w.get_active())
+                else:
+                    w.emit("clicked")
+
+    # -- widgets --
+
+    def mouse_button(self, label, code):
+        # Not a Gtk.Button: that claims the touch itself. A Box with its own
+        # gesture gives real press and release (needed for dragging).
+        button = Gtk.Box(hexpand=True)
+        button.add_css_class("key")
+        button.add_css_class("mouse-button")
+        button.append(Gtk.Label(label=label, hexpand=True))
+        g = Gtk.GestureClick()
+
+        def released(*_a):
+            button.remove_css_class("pressed")
+            self.output.button(code, False)
+            self.focus_back()
+
+        def pressed(*_a):
+            button.add_css_class("pressed")
+            self.output.button(code, True)
+
+        g.connect("pressed", pressed)
+        g.connect("released", released)
+        g.connect("cancel", released)
+        button.add_controller(g)
+        self.targets[button] = ("mouse", code)
+        return button
+
+    def key_button(self, k):
+        if k in MODIFIERS:
+            button = Gtk.ToggleButton(label=k)
+            self.mod_buttons[k] = button
+        else:
+            button = Gtk.Button(label=k)
+            button.connect("clicked", lambda _b, k=k: self.type_key(k))
+        button.add_css_class("key")
+        button.set_hexpand(True)
+        self.targets[button] = ("button", None)
+        if k == "Space":
+            button.set_size_request(110, -1)
+        return button
+
+    # -- keyboard --
+
+    def type_key(self, k):
+        code = KEYS.get(k)
+        if code is None:
+            return
+        mods = [MODIFIERS[m] for m, b in self.mod_buttons.items() if b.get_active()]
+        # Modifiers apply to one key (like on a phone keyboard)
+        for b in self.mod_buttons.values():
+            b.set_active(False)
+        if self.source and self.source.dev:
+            # The panel never gets focus: send the key right away
+            self.output.key(code, mods)
+            return
+        # Touching gave this window keyboard focus. Move focus back first,
+        # then send the key; otherwise it lands in the panel, not your app.
+        self.focus_back()
+        GLib.timeout_add(FOCUS_DELAY_MS, self._send, code, mods)
+
+    def _send(self, code, mods):
+        self.output.key(code, mods)
+        return False
+
+    def _track_focus(self):
+        try:
+            active = json.loads(hypr("j/activewindow") or "{}")
+        except ValueError:
+            active = {}
+        address = active.get("address")
+        if address and active.get("class", "") != APP_ID:
+            if address != self.previous_window:
+                dbg("tracking focus:", active.get("class"), address)
+            self.previous_window = address
+        return True
+
+    def _after_show(self):
+        self.external = external_screen() or self.external
+        self.focus_back()
+        return False
+
+    def toggle_keyboard(self, button):
+        self.keys.set_visible(button.get_active())
+
+    # -- touchpad (fallback when the touchscreen cannot be read) --
+
+    def pad_begin(self, _g, x, y):
+        dbg("touchpad begin", round(x), round(y))
+        self.previous = (0.0, 0.0)
+        self.start_time = time.monotonic()
+
+    def pad_update(self, _g, ox, oy):
+        dx = (ox - self.previous[0]) * SPEED + self.rest_x
+        dy = (oy - self.previous[1]) * SPEED + self.rest_y
+        self.previous = (ox, oy)
+        ix, iy = int(dx), int(dy)
+        self.rest_x, self.rest_y = dx - ix, dy - iy
+        self.output.move(ix, iy)
+
+    def pad_end(self, _g, ox, oy):
+        if (abs(ox) < TAP_DISTANCE and abs(oy) < TAP_DISTANCE
+                and time.monotonic() - self.start_time < TAP_TIME
+                and e is not None):
+            self.output.button(e.BTN_LEFT, True)
+            self.output.button(e.BTN_LEFT, False)
+        self.focus_back()
+
+    def scroll_begin(self, _g, _x, _y):
+        self.scroll_previous = 0.0
+        self.scroll_rest = 0.0
+
+    def scroll_update(self, _g, _ox, oy):
+        delta = oy - self.scroll_previous + self.scroll_rest
+        steps = int(delta / SCROLL_STEP)
+        if steps:
+            # Natural scrolling, like on the phone
+            self.output.scroll(steps)
+            self.scroll_rest = delta - steps * SCROLL_STEP
+        else:
+            self.scroll_rest = delta
+        self.scroll_previous = oy
+
+    # -- other --
+
+    def focus_back(self):
+        # Touching the phone screen can move the focus there; put it back on
+        # the external display so new windows open there.
+        if self.previous_window:
+            answer = hypr(f"dispatch focuswindow address:{self.previous_window}")
+            dbg("focus back to window", self.previous_window, "->", answer.strip())
+            if answer.strip() == "ok":
+                return
+            # Window is gone: fall back to the display
+            self.previous_window = None
+        if self.external:
+            answer = hypr(f"dispatch focusmonitor {self.external}")
+            dbg("focus back to", self.external, "->", answer.strip())
+
+    def close_panel(self, _button):
+        subprocess.Popen([DESKTOP, "touchpad", "off"], start_new_session=True)
+        self.get_application().quit()
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID)
+
+    def do_activate(self):
+        if self.get_windows():
+            self.get_windows()[0].present()
+            return
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+        monitor = None
+        monitors = Gdk.Display.get_default().get_monitors()
+        for i in range(monitors.get_n_items()):
+            m = monitors.get_item(i)
+            if (m.get_connector() or "") == SCREEN:
+                monitor = m
+                break
+        if monitor is None:
+            print(f"converge-touchpad: screen {SCREEN} not found "
+                  "(is the phone screen on?)", file=sys.stderr)
+            self.quit()
+            return
+
+        output = Output()
+        source = None
+        if os.environ.get("CONVERGE_TOUCHPAD_DIRECT", "1") == "1":
+            source = TouchSource()
+        dbg("screen", SCREEN, "found; output error:", output.error,
+            "; touchscreen error:", source.error if source else "off",
+            "; external screen:", external_screen())
+        Panel(self, monitor, output, source).present()
+
+
+if __name__ == "__main__":
+    GLib.set_prgname("converge-touchpad")
+    sys.exit(App().run(sys.argv))

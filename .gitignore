@@ -1,0 +1,5 @@
+packaging/alpine/*.tar.gz
+packaging/alpine/src/
+packaging/alpine/pkg/
+dist/
+__pycache__/

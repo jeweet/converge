@@ -1,0 +1,102 @@
+{
+  "$schema": "/etc/xdg/swaync/configSchema.json",
+
+  "positionX": "center",
+  "positionY": "top",
+  "layer": "overlay",
+  "control-center-layer": "top",
+  "layer-shell": true,
+  "cssPriority": "user",
+
+  "control-center-positionX": "right",
+  "control-center-positionY": "top",
+  "control-center-margin-top": 8,
+  "control-center-margin-bottom": 8,
+  "control-center-margin-right": 8,
+  "control-center-margin-left": 8,
+  "control-center-width": 420,
+  "control-center-height": 640,
+  "fit-to-screen": true,
+
+  "notification-window-width": 420,
+  "notification-icon-size": 48,
+  "notification-body-image-height": 120,
+  "notification-body-image-width": 200,
+  "notification-2fa-action": true,
+  "notification-inline-replies": true,
+
+  "timeout": 8,
+  "timeout-low": 4,
+  "timeout-critical": 0,
+  "transition-time": 200,
+
+  "keyboard-shortcuts": true,
+  "image-visibility": "when-available",
+  "hide-on-clear": true,
+  "hide-on-action": true,
+  "script-fail-notify": true,
+
+  "widgets": [
+    "buttons-grid",
+    "volume",
+    "mpris",
+    "title",
+    "dnd",
+    "notifications"
+  ],
+
+  "widget-config": {
+    "buttons-grid": {
+      "actions": [
+        {
+          "label": "  Wifi",
+          "type": "toggle",
+          "command": "sh -c \"/usr/libexec/converge/qs set wifi\"",
+          "update-command": "sh -c \"/usr/libexec/converge/qs status wifi\""
+        },
+        {
+          "label": "  Mobile data",
+          "type": "toggle",
+          "command": "sh -c \"/usr/libexec/converge/qs set data\"",
+          "update-command": "sh -c \"/usr/libexec/converge/qs status data\""
+        },
+        {
+          "label": "  Bluetooth",
+          "type": "toggle",
+          "command": "sh -c \"/usr/libexec/converge/qs set bluetooth\"",
+          "update-command": "sh -c \"/usr/libexec/converge/qs status bluetooth\""
+        },
+        {
+          "label": "  VPN",
+          "type": "toggle",
+          "command": "sh -c \"/usr/libexec/converge/qs set vpn\"",
+          "update-command": "sh -c \"/usr/libexec/converge/qs status vpn\""
+        },
+        {
+          "label": "  Settings",
+          "command": "sh -c \"swaync-client -cp; gnome-control-center\""
+        },
+        {
+          "label": "  Lock",
+          "command": "sh -c \"swaync-client -cp; /usr/libexec/converge/desktop lock\""
+        }
+      ]
+    },
+    "volume": {
+      "label": "",
+      "show-per-app": false
+    },
+    "title": {
+      "text": "Notifications",
+      "clear-all-button": true,
+      "button-text": "Clear all"
+    },
+    "dnd": {
+      "text": "Do not disturb"
+    },
+    "mpris": {
+      "image-size": 64,
+      "image-radius": 8
+    }
+  }
+}

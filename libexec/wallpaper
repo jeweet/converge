@@ -1,0 +1,79 @@
+#!/bin/sh
+# converge wallpaper: use the Phosh/GNOME wallpaper in Hyprland.
+# Reads org.gnome.desktop.background (like Phosh does) and starts swaybg.
+# Also links the image to ~/.cache/converge/background for hyprlock.
+
+log() { echo "converge-wallpaper: $*" >&2; }
+
+get() { gsettings get "$1" "$2" 2>/dev/null | sed "s/^'//; s/'\$//"; }
+
+schema=org.gnome.desktop.background
+
+# Dark mode? Then use picture-uri-dark (if set)
+uri=$(get "$schema" picture-uri)
+if [ "$(get org.gnome.desktop.interface color-scheme)" = "prefer-dark" ]; then
+    dark=$(get "$schema" picture-uri-dark)
+    [ -n "$dark" ] && uri=$dark
+fi
+options=$(get "$schema" picture-options)
+color=$(get "$schema" primary-color)
+[ -n "$color" ] || color="#000000"
+
+# Decode %XX in a URI (works in ash/dash/bash)
+url_decode() {
+    s=$1; out=
+    while [ -n "$s" ]; do
+        case "$s" in
+            %[0-9A-Fa-f][0-9A-Fa-f]*)
+                h=${s#%}; h=${h%"${h#??}"}
+                out="$out$(printf "\\$(printf '%03o' "0x$h")")"
+                s=${s#???} ;;
+            *)
+                c=${s%"${s#?}"}
+                out="$out$c"
+                s=${s#?} ;;
+        esac
+    done
+    printf '%s' "$out"
+}
+
+# file:///path%20with%20spaces -> /path with spaces
+path=$(url_decode "${uri#file://}")
+
+# GNOME "dynamic" wallpaper (.xml): use the first image in it
+case "$path" in
+    *.xml)
+        xml=$path
+        path=$(grep -o '<file>[^<]*</file>' "$xml" 2>/dev/null | head -n1 | sed 's|</*file>||g')
+        [ -n "$path" ] || path=$(grep -oE '/[^<>"]+\.(png|jpe?g|svg|webp|jxl)' "$xml" 2>/dev/null | head -n1)
+        log "xml wallpaper $xml -> $path"
+        ;;
+esac
+
+# GNOME picture-options -> swaybg mode
+case "$options" in
+    none)          mode="" ;;
+    zoom|spanned)  mode=fill ;;
+    scaled)        mode=fit ;;
+    stretched)     mode=stretch ;;
+    centered)      mode=center ;;
+    wallpaper)     mode=tile ;;
+    *)             mode=fill ;;
+esac
+
+if ! command -v swaybg >/dev/null; then
+    log "swaybg not found (apk add swaybg)"
+    exit 1
+fi
+
+if [ -z "$mode" ] || [ ! -f "$path" ]; then
+    log "solid color $color (options='$options', file='$path')"
+    exec swaybg -c "$color"
+fi
+
+# Link for hyprlock, which shows the wallpaper blurred on the lock screen
+mkdir -p "$HOME/.cache/converge"
+ln -sf "$path" "$HOME/.cache/converge/background"
+
+log "wallpaper $path ($mode)"
+exec swaybg -c "$color" -m "$mode" -i "$path"

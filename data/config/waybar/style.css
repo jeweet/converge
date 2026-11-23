@@ -1,0 +1,133 @@
+/*
+ * Converge: Waybar in the style of the GNOME top bar (packaged default).
+ * Override: copy to ~/.config/converge/waybar/style.css, or create that file
+ * with @import url("/usr/share/converge/config/waybar/style.css"); and your
+ * own rules below it. Reload: pkill -SIGUSR2 waybar
+ */
+
+* {
+  font-family: "Adwaita Sans", "Cantarell", "Font Awesome 6 Free", "Font Awesome 6 Brands", sans-serif;
+  font-size: 14px;
+  font-weight: bold;
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+window#waybar {
+  background: #000000;
+  color: #ffffff;
+}
+
+tooltip {
+  background: #303030;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+
+tooltip label {
+  color: #ffffff;
+  font-weight: normal;
+  padding: 4px 6px;
+}
+
+/* All buttons in the bar: a pill that lights up on hover, like GNOME */
+#workspaces,
+#clock,
+#custom-notifications,
+#status {
+  margin: 3px 2px;
+  padding: 0 12px;
+  border-radius: 100px;
+  background: transparent;
+  transition: background 150ms ease;
+}
+
+#workspaces:hover,
+#clock:hover,
+#custom-notifications:hover,
+#status:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ---------- Left: workspaces as dots --------------------------------- */
+
+#workspaces {
+  margin-left: 6px;
+  padding: 0 8px;
+}
+
+#workspaces button {
+  min-width: 7px;
+  min-height: 7px;
+  padding: 0;
+  margin: 10px 3px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.45);
+  transition: min-width 200ms ease, background 200ms ease;
+}
+
+#workspaces button label {
+  font-size: 0;
+}
+
+#workspaces button:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+#workspaces button.active {
+  min-width: 30px;
+  background: #ffffff;
+}
+
+#workspaces button.empty:not(.active) {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+#workspaces button.urgent {
+  background: #3584e4;
+}
+
+/* ---------- Center: clock ----------------------------------------- */
+
+#clock {
+  font-size: 14px;
+}
+
+/* ---------- Right: notifications + system menu ---------------------- */
+
+#custom-notifications {
+  padding: 0 10px;
+}
+
+#status {
+  margin-right: 6px;
+  padding: 0 8px;
+}
+
+#custom-vpn,
+#custom-modem,
+#network,
+#bluetooth,
+#pulseaudio,
+#battery {
+  padding: 0 5px;
+  color: #ffffff;
+  background: transparent;
+}
+
+#custom-modem.weak,
+#custom-modem.no-signal,
+#pulseaudio.muted {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+#battery.warning:not(.charging) {
+  color: #f6d32d;
+}
+
+#battery.critical:not(.charging) {
+  color: #ff7b63;
+}

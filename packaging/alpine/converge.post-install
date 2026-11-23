@@ -1,0 +1,20 @@
+#!/bin/sh
+
+if command -v systemctl >/dev/null 2>&1; then
+	systemctl daemon-reload >/dev/null 2>&1
+	systemctl enable converge-switch.service >/dev/null 2>&1
+fi
+udevadm control --reload >/dev/null 2>&1
+modprobe uinput >/dev/null 2>&1
+
+cat <<EOF
+*
+* Converge is installed. Finish the setup as your normal user:
+*
+*     converge setup
+*
+* Then plug in a display, or open the Converge app.
+*
+EOF
+
+exit 0

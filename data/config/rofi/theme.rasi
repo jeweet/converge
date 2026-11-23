@@ -1,0 +1,143 @@
+/*
+ * Converge: rofi as a compact GNOME-style overlay (dark), closes when you
+ * click next to it (packaged default).
+ * Override: copy to ~/.config/converge/rofi/theme.rasi and point @theme in
+ * ~/.config/converge/rofi/config.rasi to it.
+ */
+
+* {
+    panel-bg:      rgba(30, 30, 30, 72%);
+    panel-border:  rgba(255, 255, 255, 8%);
+    text-fg:       #ffffff;
+    dimmed:        rgba(255, 255, 255, 60%);
+    tile:          rgba(255, 255, 255, 10%);
+    tile-active:   rgba(255, 255, 255, 16%);
+    accent:        #3584e4;
+
+    font:             "Adwaita Sans 11";
+    background-color: transparent;
+    text-color:       @text-fg;
+    border:           0;
+    margin:           0;
+    padding:          0;
+    spacing:          0;
+}
+
+/*
+ * Rofi invisibly covers the whole screen, so a click next to the panel
+ * reaches rofi. The visible panel sits in the middle; the empty areas
+ * around it are invisible buttons that act as "Escape" (action).
+ * The screen is dimmed slightly; that stays below Hyprland's ignore_alpha
+ * (0.3), so only the panel gets blur behind it.
+ */
+window {
+    fullscreen:       true;
+    transparency:     "real";
+    background-color: rgba(0, 0, 0, 20%);
+}
+
+mainbox {
+    orientation: vertical;
+    children:    [ button-top, middle, button-bottom ];
+}
+
+middle {
+    orientation: horizontal;
+    expand:      false;
+    children:    [ button-left, panel, button-right ];
+}
+
+button-top, button-bottom, button-left, button-right {
+    expand:  true;
+    content: "";
+    action:  "kb-cancel";
+    cursor:  default;
+}
+
+/* The visible panel */
+panel {
+    orientation:      vertical;
+    expand:           false;
+    width:            760px;
+    children:         [ inputbar, listview ];
+    spacing:          18px;
+    background-color: @panel-bg;
+    border:           1px;
+    border-color:     @panel-border;
+    border-radius:    18px;
+    padding:          20px;
+}
+
+/* Search field: rounded pill across the full width */
+inputbar {
+    children:         [ entry ];
+    background-color: @tile;
+    border-radius:    100px;
+    padding:          9px 18px;
+}
+
+entry {
+    placeholder:       "Type to search";
+    placeholder-color: @dimmed;
+    cursor-color:      @text-fg;
+    horizontal-align:  0;
+    vertical-align:    0.5;
+}
+
+/* Grid of apps */
+listview {
+    columns:       6;
+    lines:         4;
+    layout:        vertical;
+    flow:          horizontal;
+    fixed-columns: true;
+    fixed-height:  true;
+    spacing:       8px;
+    scrollbar:     true;
+    cycle:         false;
+}
+
+/* Thin scrollbar, like in GNOME */
+scrollbar {
+    handle-width:     4px;
+    handle-color:     rgba(255, 255, 255, 35%);
+    background-color: transparent;
+    border-radius:    100px;
+    margin:           0 0 0 6px;
+}
+
+element {
+    orientation:   vertical;
+    padding:       10px 4px 8px 4px;
+    spacing:       8px;
+    border-radius: 14px;
+    cursor:        pointer;
+}
+
+element normal.normal,
+element alternate.normal {
+    background-color: transparent;
+}
+
+element selected.normal {
+    background-color: @tile-active;
+}
+
+element-icon {
+    size:             48px;
+    horizontal-align: 0.5;
+    cursor:           inherit;
+}
+
+element-text {
+    horizontal-align: 0.5;
+    vertical-align:   0;
+    text-color:       inherit;
+    cursor:           inherit;
+}
+
+/* Messages from rofi itself (e.g. "no results") */
+textbox {
+    text-color:       @dimmed;
+    horizontal-align: 0.5;
+}

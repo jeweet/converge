@@ -1,0 +1,79 @@
+#!/bin/sh
+# converge battery: warn in desktop mode when the battery runs low.
+# Some phones (e.g. the Fairphone 5 on mainline) do not charge while they
+# are the USB host in a dock. Started by "desktop start"; stops with Hyprland.
+#
+# Set BATTERY_WARNINGS in ~/.config/converge/converge.conf
+# (percentages, empty = off; 10% and lower are critical).
+
+. /usr/lib/converge/common.sh
+converge_load_conf
+[ -n "$BATTERY_WARNINGS" ] || exit 0
+
+log() { converge_log converge-hyprland "converge-battery: $*"; }
+
+# The phone's own battery (not a mouse or keyboard)
+battery=""
+for d in /sys/class/power_supply/*; do
+    [ "$(cat "$d/type" 2>/dev/null)" = Battery ] || continue
+    [ "$(cat "$d/scope" 2>/dev/null)" = Device ] && continue
+    battery=$d
+    break
+done
+if [ -z "$battery" ]; then
+    log "no battery found"
+    exit 0
+fi
+
+# Stop as soon as Hyprland is gone
+socket="${XDG_RUNTIME_DIR}/hypr/${HYPRLAND_INSTANCE_SIGNATURE}/.socket.sock"
+alive() { [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ] || [ -S "$socket" ]; }
+
+notification_id=""
+warned=""   # thresholds that already got a notification
+
+notify() {
+    # $1 = urgency, $2 = title, $3 = body
+    replace=""
+    [ -n "$notification_id" ] && replace="-r $notification_id"
+    # shellcheck disable=SC2086
+    notification_id=$(notify-send -p $replace -a Converge -u "$1" \
+        -i battery-caution-symbolic "$2" "$3" 2>/dev/null)
+}
+
+log "watching $battery (warnings at: $BATTERY_WARNINGS%)"
+
+while alive; do
+    pct=$(cat "$battery/capacity" 2>/dev/null)
+    status=$(cat "$battery/status" 2>/dev/null)
+
+    if [ -n "$pct" ]; then
+        if [ "$status" = Charging ] || [ "$status" = Full ]; then
+            # Charging (again): warn again when it drops
+            warned=""
+        else
+            # Lowest threshold we are at or below that was not warned yet
+            new=""
+            for t in $BATTERY_WARNINGS; do
+                [ "$pct" -le "$t" ] || continue
+                case " $warned " in *" $t "*) continue ;; esac
+                if [ -z "$new" ] || [ "$t" -lt "$new" ]; then new=$t; fi
+            done
+            if [ -n "$new" ]; then
+                # All higher thresholds count as warned too
+                for t in $BATTERY_WARNINGS; do
+                    [ "$t" -ge "$new" ] && warned="$warned $t"
+                done
+                if [ "$pct" -le 10 ]; then
+                    notify critical "Battery almost empty: $pct%" \
+                        "The phone is not charging in the dock. Save your work or undock to charge."
+                else
+                    notify normal "Battery at $pct%" \
+                        "The phone is not charging in the dock."
+                fi
+                log "warning at $pct% (status $status)"
+            fi
+        fi
+    fi
+    sleep 60
+done

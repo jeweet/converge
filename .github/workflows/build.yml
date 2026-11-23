@@ -1,0 +1,53 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax checks and shellcheck
+        run: make check
+
+  apk:
+    needs: check
+    runs-on: ubuntu-latest
+    container: alpine:edge
+    steps:
+      - name: Install build tools
+        run: apk add --no-cache alpine-sdk git
+      - uses: actions/checkout@v4
+      - name: Build package
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Throwaway signing key: install the result with --allow-untrusted
+          abuild-keygen -a -n
+          make dist
+          cd packaging/alpine
+          abuild -F checksum
+          # -d: runtime dependencies are not needed to build a noarch package
+          abuild -F -d -r
+      - name: Collect package
+        run: |
+          mkdir -p dist
+          find ~/packages -name 'converge-*.apk' -exec cp {} dist/ \;
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: converge-apk
+          path: dist/*.apk
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
+          generate_release_notes: true

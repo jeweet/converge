@@ -1,0 +1,85 @@
+#!/bin/sh
+# converge qs: quick settings for swaync (and VPN status for Waybar).
+#
+#   qs status <item>   print true/false   (swaync update-command)
+#   qs set <item>      on/off according to $SWAYNC_TOGGLE_STATE,
+#                      or toggle when that is not set
+#   qs waybar vpn      JSON for the Waybar VPN module
+#
+# items: wifi, bluetooth, data, vpn
+# The VPN is VPN_CONNECTION from ~/.config/converge/converge.conf, or the
+# first WireGuard/VPN connection in NetworkManager.
+
+. /usr/lib/converge/common.sh
+converge_load_conf
+
+vpn_connection() {
+    if [ -n "$VPN_CONNECTION" ]; then
+        echo "$VPN_CONNECTION"
+        return
+    fi
+    nmcli -t -f NAME,TYPE connection show 2>/dev/null |
+        awk -F: '$NF == "wireguard" || $NF == "vpn" { sub(/:[^:]*$/, ""); print; exit }'
+}
+
+gsm_connection() {
+    nmcli -t -f NAME,TYPE connection show 2>/dev/null |
+        awk -F: '$NF == "gsm" { sub(/:[^:]*$/, ""); print; exit }'
+}
+
+is_on() {
+    case "$1" in
+        wifi)
+            [ "$(nmcli radio wifi 2>/dev/null)" = "enabled" ] ;;
+        bluetooth)
+            bluetoothctl show 2>/dev/null | grep -q 'Powered: yes' ;;
+        data)
+            nmcli -t -f TYPE connection show --active 2>/dev/null | grep -qx gsm ;;
+        vpn)
+            v=$(vpn_connection)
+            [ -n "$v" ] && nmcli -t -f NAME connection show --active 2>/dev/null | grep -qxF "$v" ;;
+        *)
+            return 1 ;;
+    esac
+}
+
+set_item() {
+    # $1 = item, $2 = on/off
+    case "$1" in
+        wifi)
+            nmcli radio wifi "$2" ;;
+        bluetooth)
+            [ "$2" = on ] && rfkill unblock bluetooth 2>/dev/null
+            bluetoothctl power "$2" >/dev/null ;;
+        data)
+            g=$(gsm_connection)
+            [ -n "$g" ] || exit 1
+            if [ "$2" = on ]; then nmcli connection up "$g"; else nmcli connection down "$g"; fi ;;
+        vpn)
+            v=$(vpn_connection)
+            [ -n "$v" ] || exit 1
+            if [ "$2" = on ]; then nmcli connection up "$v"; else nmcli connection down "$v"; fi ;;
+    esac >/dev/null 2>&1
+}
+
+case "$1" in
+    status)
+        if is_on "$2"; then echo true; else echo false; fi ;;
+    set)
+        case "$SWAYNC_TOGGLE_STATE" in
+            true)  set_item "$2" on ;;
+            false) set_item "$2" off ;;
+            *)     if is_on "$2"; then set_item "$2" off; else set_item "$2" on; fi ;;
+        esac ;;
+    waybar)
+        # VPN only: show a lock while the tunnel is up
+        if [ "$2" = vpn ] && is_on vpn; then
+            printf '{"text":"%s","tooltip":"VPN (%s) active","class":"on"}\n' \
+                "$(printf '\357\200\243')" "$(vpn_connection | tr -d '"\\')"
+        else
+            printf '{"text":"","tooltip":"","class":"off"}\n'
+        fi ;;
+    *)
+        echo "usage: $0 status|set <wifi|bluetooth|data|vpn>  or  $0 waybar vpn" >&2
+        exit 2 ;;
+esac

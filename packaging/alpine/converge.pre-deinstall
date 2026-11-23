@@ -1,0 +1,15 @@
+#!/bin/sh
+
+if command -v systemctl >/dev/null 2>&1; then
+	systemctl disable converge-switch.service >/dev/null 2>&1
+fi
+
+cat <<EOF
+*
+* Converge is being removed. If you are in desktop mode, reboot to get back
+* to the normal greeter. The PAM lines added by "converge setup" stay in
+* /etc/pam.d (they are harmless); see the README to remove them.
+*
+EOF
+
+exit 0

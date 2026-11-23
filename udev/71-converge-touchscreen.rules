@@ -1,0 +1,4 @@
+# Converge: give the user logged in on the device itself (active local
+# session) read access to touchscreens. The phone touchpad reads the
+# touchscreen directly. Other users and SSH sessions get no access.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_TOUCHSCREEN}=="1", TAG+="uaccess"

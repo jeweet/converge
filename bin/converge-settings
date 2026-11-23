@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+"""Converge: the settings app for Phosh (GTK4/libadwaita).
+
+Shows whether an external display is connected, switches to desktop mode
+(Hyprland) and manages the settings in ~/.config/converge/converge.conf.
+"""
+
+import glob
+import os
+import sys
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+
+APP_ID = "io.github.jeweet.Converge"
+DOCK_SERVICE = "converge-dock.service"
+
+CONF = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+    "converge", "converge.conf")
+
+# (key, title, subtitle, default)
+OPTIONS = [
+    ("PHONE_TOUCHPAD", "Phone screen as touchpad and keyboard",
+     "The phone screen stays on in desktop mode as a touchpad and keyboard "
+     "(Super+T shows or hides it)", False),
+    ("AUDIO_TO_DISPLAY", "Audio through the external display",
+     "Sound plays through the monitor or TV while docked", True),
+    ("BLOCK_SUSPEND", "No suspend in desktop mode",
+     "Locking and turning off the screen still happen when idle", True),
+]
+
+
+def read_conf():
+    values = {}
+    try:
+        with open(CONF) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    values[k.strip()] = v.strip().strip('"')
+    except OSError:
+        pass
+    return values
+
+
+def write_conf(key, value):
+    """Change or add one line; everything else (and comments) stays."""
+    os.makedirs(os.path.dirname(CONF), exist_ok=True)
+    try:
+        with open(CONF) as f:
+            lines = f.readlines()
+    except OSError:
+        lines = []
+    new = f"{key}={value}\n"
+    for i, line in enumerate(lines):
+        if line.strip().startswith(key + "="):
+            lines[i] = new
+            break
+    else:
+        lines.append(new)
+    tmp = CONF + ".tmp"
+    with open(tmp, "w") as f:
+        f.writelines(lines)
+    os.replace(tmp, CONF)
+
+
+def external_display():
+    """(name, resolution) of a connected external display, or None."""
+    for status in sorted(glob.glob("/sys/class/drm/card*-*/status")):
+        connector = os.path.basename(os.path.dirname(status))  # card0-DP-1
+        if "DSI" in connector or "eDP" in connector:
+            continue
+        try:
+            with open(status) as f:
+                if f.read().strip() != "connected":
+                    continue
+        except OSError:
+            continue
+        name = connector.split("-", 1)[1] if "-" in connector else connector
+        resolution = ""
+        try:
+            with open(os.path.join(os.path.dirname(status), "modes")) as f:
+                resolution = f.readline().strip()
+        except OSError:
+            pass
+        return name, resolution
+    return None
+
+
+class Window(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Converge")
+        self.set_default_size(360, 720)
+        self.busy = False
+
+        self.toasts = Adw.ToastOverlay()
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(Adw.HeaderBar())
+
+        # Shown when "converge doctor" finds problems
+        self.banner = Adw.Banner(
+            title="Setup is incomplete. Run “converge doctor” in a terminal.")
+        toolbar.add_top_bar(self.banner)
+
+        self.status = Adw.StatusPage()
+        self.status.set_icon_name("video-display-symbolic")
+
+        buttons = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        buttons.set_halign(Gtk.Align.CENTER)
+
+        self.button = Gtk.Button(label="Switch to desktop mode")
+        self.button.add_css_class("pill")
+        self.button.add_css_class("suggested-action")
+        self.button.connect("clicked", self.switch)
+        buttons.append(self.button)
+
+        self.spinner = Gtk.Spinner()
+        self.spinner.set_visible(False)
+        buttons.append(self.spinner)
+
+        self.status.set_child(buttons)
+
+        group = Adw.PreferencesGroup(
+            title="Desktop mode",
+            description="Applies the next time you switch")
+        values = read_conf()
+        for key, title, subtitle, default in OPTIONS:
+            row = Adw.SwitchRow(title=title, subtitle=subtitle)
+            row.set_active(values.get(key, "1" if default else "0") == "1")
+            row.connect("notify::active", self.option_changed, key)
+            group.add(row)
+        clamp = Adw.Clamp(maximum_size=520)
+        clamp.set_margin_start(12)
+        clamp.set_margin_end(12)
+        clamp.set_margin_bottom(24)
+        clamp.set_child(group)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        content.append(self.status)
+        content.append(clamp)
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroller.set_child(content)
+        toolbar.set_content(scroller)
+        self.toasts.set_child(toolbar)
+        self.set_content(self.toasts)
+
+        self.refresh()
+        # Follow plugging and unplugging live
+        GLib.timeout_add_seconds(1, self.refresh)
+        self.check_setup()
+
+    def check_setup(self):
+        try:
+            proc = Gio.Subprocess.new(
+                ["converge", "doctor", "--quiet"],
+                Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE)
+        except GLib.Error:
+            return
+        proc.wait_async(None, self._setup_checked)
+
+    def _setup_checked(self, proc, result):
+        try:
+            proc.wait_finish(result)
+        except GLib.Error:
+            return
+        self.banner.set_revealed(not proc.get_successful())
+
+    def refresh(self):
+        if self.busy:
+            return True
+        display = external_display()
+        if display:
+            name, resolution = display
+            self.status.set_title("Display connected")
+            description = name
+            if resolution:
+                description += f" · {resolution}"
+            description += (
+                "\n\nPhosh closes and Hyprland starts on the external display. "
+                "Unlock there with your PIN."
+            )
+            self.status.set_description(description)
+            self.button.set_sensitive(True)
+        else:
+            self.status.set_title("No display connected")
+            self.status.set_description(
+                "Connect a monitor over USB-C to switch to desktop mode."
+            )
+            self.button.set_sensitive(False)
+        return True
+
+    def option_changed(self, row, _pspec, key):
+        try:
+            write_conf(key, "1" if row.get_active() else "0")
+        except OSError as error:
+            self.toasts.add_toast(Adw.Toast.new(f"Saving failed: {error}"))
+
+    def switch(self, _button):
+        self.busy = True
+        self.button.set_sensitive(False)
+        self.button.set_label("Switching…")
+        self.spinner.set_visible(True)
+        self.spinner.start()
+        try:
+            proc = Gio.Subprocess.new(
+                ["systemctl", "start", "--no-block", DOCK_SERVICE],
+                Gio.SubprocessFlags.STDERR_PIPE,
+            )
+        except GLib.Error as error:
+            self.failed(error.message)
+            return
+        proc.communicate_utf8_async(None, None, self.started)
+
+    def started(self, proc, result):
+        try:
+            _, _, err = proc.communicate_utf8_finish(result)
+        except GLib.Error as error:
+            self.failed(error.message)
+            return
+        if not proc.get_successful():
+            self.failed((err or "").strip() or "unknown error")
+        # On success Phosh closes by itself; nothing left to do
+
+    def failed(self, message):
+        self.busy = False
+        self.spinner.stop()
+        self.spinner.set_visible(False)
+        self.button.set_label("Switch to desktop mode")
+        self.refresh()
+        self.toasts.add_toast(Adw.Toast.new(f"Switching failed: {message}"))
+
+
+class App(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID,
+                         flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def do_activate(self):
+        window = self.get_active_window() or Window(self)
+        window.present()
+
+
+if __name__ == "__main__":
+    sys.exit(App().run(sys.argv))

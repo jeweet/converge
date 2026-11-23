@@ -1,0 +1,4 @@
+# Converge: give the user logged in on the device itself (active local
+# session) access to /dev/uinput, for the phone touchpad (virtual mouse and
+# keyboard). Other users and SSH sessions get no access.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"

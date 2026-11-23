@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Converge: titlebar buttons for Phosh
+Comment=Restore the Phosh titlebar button layout after desktop mode
+Exec=/usr/libexec/converge/titlebar phosh
+OnlyShowIn=Phosh;
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

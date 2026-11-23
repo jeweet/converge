@@ -1,0 +1,14 @@
+#!/bin/sh
+
+if command -v systemctl >/dev/null 2>&1; then
+	systemctl daemon-reload >/dev/null 2>&1
+fi
+udevadm control --reload >/dev/null 2>&1
+
+cat <<EOF
+*
+* Converge was updated. If something does not work, run: converge doctor
+*
+EOF
+
+exit 0

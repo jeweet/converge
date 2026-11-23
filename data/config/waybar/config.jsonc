@@ -1,0 +1,141 @@
+// Converge: Waybar config for desktop mode (packaged default).
+// Override: copy to ~/.config/converge/waybar/config.jsonc, or create that
+// file with {"include": ["/usr/share/converge/config/waybar/config.jsonc"], ...}
+// and only the keys you want to change.
+{
+  "layer": "top",
+  "position": "top",
+  "height": 32,
+  "spacing": 2,
+
+  "modules-left": ["hyprland/workspaces"],
+  "modules-center": ["clock"],
+  "modules-right": ["custom/notifications", "group/status"],
+
+  // All status icons in one pill, like the GNOME system menu
+  "group/status": {
+    "orientation": "horizontal",
+    "modules": [
+      "custom/vpn",
+      "custom/modem",
+      "network#lan",
+      "network#wifi",
+      "bluetooth",
+      "pulseaudio",
+      "battery"
+    ]
+  },
+
+  // Workspaces as dots, the active one as a longer pill (GNOME 45+)
+  "hyprland/workspaces": {
+    "format": "",
+    // Always show workspaces 1 to 4, even when empty
+    "persistent-workspaces": { "1": [], "2": [], "3": [], "4": [] },
+    "on-click": "activate",
+    "sort-by-number": true
+  },
+
+  "clock": {
+    "format": "{:%H:%M}",
+    "tooltip-format": "<tt>{calendar}</tt>",
+    "calendar": {
+      "mode": "month",
+      "weeks-pos": "",
+      "format": {
+        "today": "<span color='#3584e4'><b>{}</b></span>"
+      }
+    }
+  },
+
+  "custom/vpn": {
+    "exec": "/usr/libexec/converge/qs waybar vpn",
+    "return-type": "json",
+    "interval": 10,
+    "on-click": "swaync-client -t -sw"
+  },
+
+  "custom/modem": {
+    "exec": "/usr/libexec/converge/waybar-modem",
+    "return-type": "json",
+    "interval": 30,
+    "on-click": "swaync-client -t -sw"
+  },
+
+  "network#lan": {
+    "interface": "en*",
+    "format-ethernet": "",
+    "format-disconnected": "",
+    "format-disabled": "",
+    "tooltip-format-ethernet": "Wired: {ipaddr}",
+    "on-click": "swaync-client -t -sw"
+  },
+
+  "network#wifi": {
+    "interface": "wlan0",
+    "format-wifi": "",
+    "format-ethernet": "",
+    "format-linked": "",
+    "format-disconnected": "",
+    "format-disabled": "",
+    "tooltip-format-wifi": "{essid} ({signalStrength}%)\n{ipaddr}",
+    "tooltip-format-linked": "{ifname} (no IP address)",
+    "on-click": "swaync-client -t -sw"
+  },
+
+  "bluetooth": {
+    "format": "",
+    "format-on": "",
+    "format-connected": " {num_connections}",
+    "format-off": "",
+    "format-disabled": "",
+    "tooltip-format-connected": "{device_enumerate}",
+    "tooltip-format-enumerate-connected": "{device_alias}",
+    "on-click": "swaync-client -t -sw"
+  },
+
+  "pulseaudio": {
+    "format": "{icon}",
+    "format-muted": "",
+    "format-icons": {
+      "default": ["", "", ""]
+    },
+    "tooltip-format": "Volume {volume}%",
+    "scroll-step": 5,
+    "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+    "on-click-right": "swaync-client -t -sw"
+  },
+
+  "battery": {
+    "format": "{icon} {capacity}%",
+    "format-charging": " {capacity}%",
+    "format-plugged": " {capacity}%",
+    "format-icons": ["", "", "", "", ""],
+    "states": {
+      "warning": 20,
+      "critical": 10
+    },
+    "tooltip-format": "{timeTo}",
+    "on-click": "swaync-client -t -sw"
+  },
+
+  "custom/notifications": {
+    "tooltip": false,
+    "format": "{icon}",
+    "format-icons": {
+      "notification": "<span foreground='#3584e4'><sup>●</sup></span>",
+      "none": "",
+      "dnd-notification": "<span foreground='#3584e4'><sup>●</sup></span>",
+      "dnd-none": "",
+      "inhibited-notification": "<span foreground='#3584e4'><sup>●</sup></span>",
+      "inhibited-none": "",
+      "dnd-inhibited-notification": "<span foreground='#3584e4'><sup>●</sup></span>",
+      "dnd-inhibited-none": ""
+    },
+    "return-type": "json",
+    "exec-if": "which swaync-client",
+    "exec": "swaync-client -swb",
+    "on-click": "swaync-client -t -sw",
+    "on-click-right": "swaync-client -d -sw",
+    "escape": true
+  }
+}

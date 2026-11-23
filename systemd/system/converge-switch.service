@@ -1,0 +1,16 @@
+[Unit]
+Description=Converge: switch between Phosh and Hyprland when a display is (dis)connected
+Documentation=https://github.com/jeweet/converge
+# At boot, run after greetd so the right session is chosen
+After=greetd.service
+
+[Service]
+Type=oneshot
+# Give the cable/dock a moment to settle
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/libexec/converge/switch auto
+
+[Install]
+# Once at boot: if the phone is already docked, offer desktop mode right
+# away. After that the udev rule handles plugging and unplugging.
+WantedBy=graphical.target

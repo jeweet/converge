@@ -1,0 +1,151 @@
+#!/bin/sh
+# converge desktop: helpers for the Hyprland desktop, called from the
+# packaged hyprland.conf. Each component uses the user's override in
+# ~/.config/converge/ if it exists, otherwise the packaged default.
+#
+#   desktop start           desktop-mode setup (audio, no suspend, ...)
+#   desktop lock            hyprlock
+#   desktop idle            hypridle
+#   desktop bar             waybar
+#   desktop notifications   swaync
+#   desktop launcher        toggle the app launcher (rofi)
+#   desktop touchpad on|off|toggle   phone screen as touchpad + keyboard
+
+. /usr/lib/converge/common.sh
+converge_load_conf
+
+log() { converge_log converge-hyprland "converge-desktop: $*"; }
+
+# ---------- start --------------------------------------------------------------
+
+start() {
+    # GTK titlebar buttons for the desktop; Phosh restores its own layout
+    # at login (/etc/xdg/autostart/converge-titlebar-phosh.desktop)
+    "$CONVERGE_LIBEXEC/titlebar" desktop
+
+    # Rofi caches the .desktop files; drop the cache so new, removed and
+    # hidden apps are right
+    rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/rofi-drun-desktop.cache"
+
+    # App icons as small PNGs (rofi loads those much faster than SVG).
+    # Only new or changed icons cost time.
+    "$CONVERGE_LIBEXEC/rofi-icons" 2>&1 | systemd-cat -t converge-rofi-icons &
+
+    # Block suspend (not idle: hypridle still locks and blanks the screen).
+    # The inhibitor ends with the session.
+    if [ "$BLOCK_SUSPEND" = 1 ]; then
+        systemd-inhibit --what=sleep --who="Converge" \
+            --why="Phone is docked" --mode=block sleep infinity &
+        log "suspend blocked while docked"
+    fi
+
+    # Audio to the external display. PipeWire sometimes creates the
+    # DisplayPort/HDMI sink a few seconds after start, so keep looking.
+    if [ "$AUDIO_TO_DISPLAY" = 1 ] && command -v wpctl >/dev/null; then
+        (
+            i=0
+            while [ $i -lt 20 ]; do
+                id=$(wpctl status -n 2>/dev/null \
+                    | grep -iE 'displayport|hdmi' \
+                    | grep -iE 'alsa_output|sink' \
+                    | grep -oE '[0-9]+\.' | head -n1 | tr -d '.')
+                if [ -n "$id" ]; then
+                    wpctl set-default "$id" && log "audio to the external display (node $id)"
+                    exit 0
+                fi
+                sleep 1
+                i=$((i + 1))
+            done
+            log "no DisplayPort/HDMI audio output found; audio stays on the phone"
+        ) &
+    fi
+
+    # Battery warnings (some phones do not charge while docked)
+    "$CONVERGE_LIBEXEC/battery" &
+
+    if [ "$PHONE_TOUCHPAD" = 1 ]; then
+        # Give Hyprland a moment to set up the outputs
+        (sleep 3; touchpad on) &
+    fi
+
+    wait
+}
+
+# ---------- components ---------------------------------------------------------
+
+lock() {
+    pidof hyprlock >/dev/null && return 0
+    exec hyprlock -c "$(converge_config hypr/hyprlock.conf)"
+}
+
+idle() {
+    exec hypridle -c "$(converge_config hypr/hypridle.conf)"
+}
+
+bar() {
+    exec waybar -c "$(converge_config waybar/config.jsonc)" \
+                -s "$(converge_config waybar/style.css)"
+}
+
+notifications() {
+    exec swaync -c "$(converge_config swaync/config.json)" \
+                -s "$(converge_config swaync/style.css)"
+}
+
+launcher() {
+    pkill -x rofi && return 0
+    exec rofi -config "$(converge_config rofi/config.rasi)" -show drun
+}
+
+# ---------- touchpad -------------------------------------------------------------
+
+# The phone screen itself is configured before Hyprland starts (see
+# hyprland-session): moving or toggling outputs while Hyprland runs can
+# turn the external display black, so this never touches outputs.
+
+touchpad_running() { pgrep -f "$CONVERGE_LIBEXEC/touchpad" >/dev/null 2>&1; }
+
+touchpad() {
+    internal=$(converge_internal_display)
+    case "$1" in
+        on)
+            touchpad_running && return 0
+            if ! hyprctl monitors 2>/dev/null | grep -q "^Monitor $internal "; then
+                log "phone screen $internal is off; enable PHONE_TOUCHPAD and dock again"
+                notify-send -a Converge -i input-touchpad-symbolic \
+                    "Phone screen is off" \
+                    "Turn on \"Phone screen as touchpad\" in the Converge app, then dock again." 2>/dev/null
+                return 1
+            fi
+            # Own workspace on the phone screen, so Super+1..4 never go there
+            hyprctl keyword workspace "name:touchpad, monitor:$internal, default:true" >/dev/null
+            hyprctl dispatch focusmonitor "$internal" >/dev/null
+            CONVERGE_INTERNAL="$internal" setsid "$CONVERGE_LIBEXEC/touchpad" >/dev/null 2>&1 &
+            log "touchpad on $internal"
+            ;;
+        off)
+            pkill -f "$CONVERGE_LIBEXEC/touchpad" 2>/dev/null
+            log "touchpad off"
+            ;;
+        toggle)
+            if touchpad_running; then touchpad off; else touchpad on; fi
+            ;;
+        *)
+            echo "usage: $0 touchpad on|off|toggle" >&2
+            return 2
+            ;;
+    esac
+}
+
+case "$1" in
+    start)         start ;;
+    lock)          lock ;;
+    idle)          idle ;;
+    bar)           bar ;;
+    notifications) notifications ;;
+    launcher)      launcher ;;
+    touchpad)      touchpad "$2" ;;
+    *)
+        echo "usage: $0 start|lock|idle|bar|notifications|launcher|touchpad on|off|toggle" >&2
+        exit 2 ;;
+esac

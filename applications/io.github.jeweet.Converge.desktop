@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Converge
+Comment=Desktop mode on an external display, and its settings
+Icon=video-display
+Exec=converge-settings
+Terminal=false
+StartupNotify=true
+Categories=System;Settings;
+Keywords=dock;desktop;monitor;display;convergence;Hyprland;
+X-Purism-FormFactor=Workstation;Mobile;
+# The buttons of the "Display connected" notification may be used on the
+# lock screen
+X-Phosh-Lockscreen-Actions=dock;phone;

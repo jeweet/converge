@@ -1,0 +1,13 @@
+# Active while the Converge Hyprland session runs. Binds
+# graphical-session.target, so xdg-desktop-portal and other session services
+# can start, and pulls in xdg-desktop-autostart.target (Calls, Chatty, ...
+# from /etc/xdg/autostart). xdg-desktop-autostart.target cannot be started
+# by hand; a session target has to pull it in like this.
+[Unit]
+Description=Converge Hyprland session
+Documentation=https://github.com/jeweet/converge
+BindsTo=graphical-session.target
+Wants=graphical-session-pre.target
+After=graphical-session-pre.target
+Wants=xdg-desktop-autostart.target
+Before=xdg-desktop-autostart.target

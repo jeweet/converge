@@ -1,0 +1,506 @@
+#!/bin/sh
+# converge: Phosh on the phone, Hyprland when docked.
+#
+#   converge setup [--yes]      finish the installation (run as your user)
+#   converge doctor [--quiet]   check the installation, report problems
+#   converge status             what is active right now
+#   converge dock               switch to desktop mode (needs a display)
+#   converge phone              leave desktop mode, back to Phosh
+#   converge touchpad on|off|toggle   phone screen as touchpad (desktop mode)
+#   converge reset              back to the normal greeter (uses sudo)
+#   converge version
+
+. /usr/lib/converge/common.sh
+
+ME=$(basename "$0")
+
+# ---------- output helpers -----------------------------------------------------
+
+if [ -t 1 ]; then
+    C_OK=$(printf '\033[32m'); C_WARN=$(printf '\033[33m'); C_FAIL=$(printf '\033[31m')
+    C_BOLD=$(printf '\033[1m'); C_OFF=$(printf '\033[0m')
+else
+    C_OK=""; C_WARN=""; C_FAIL=""; C_BOLD=""; C_OFF=""
+fi
+
+say()     { echo "$*"; }
+heading() { echo; echo "${C_BOLD}$*${C_OFF}"; }
+die()     { echo "$ME: $*" >&2; exit 1; }
+
+# ---------- small file helpers -------------------------------------------------
+
+# Set KEY=value in a shell-style config file (replace or append)
+set_key() {
+    # $1 = file, $2 = key, $3 = value (already quoted if needed)
+    if grep -q "^[[:space:]]*$2=" "$1" 2>/dev/null; then
+        tmp="$1.converge-tmp"
+        awk -v k="$2" -v v="$3" '
+            !done && $0 ~ "^[[:space:]]*" k "=" { print k "=" v; done = 1; next }
+            { print }' "$1" >"$tmp" && cat "$tmp" >"$1" && rm -f "$tmp"
+    else
+        printf '%s=%s\n' "$2" "$3" >>"$1"
+    fi
+}
+
+# Value of KEY in a shell-style config file (raw, quotes kept)
+get_key() {
+    sed -n "s/^[[:space:]]*$2=//p" "$1" 2>/dev/null | tail -n1
+}
+
+# Move a file into a backup directory, keeping its path below $3
+backup() {
+    # $1 = file, $2 = backup dir, $3 = base path to strip
+    [ -e "$1" ] || [ -L "$1" ] || return 0
+    rel=${1#"$3"/}
+    mkdir -p "$2/$(dirname "$rel")"
+    mv "$1" "$2/$rel"
+    say "  moved $1 -> $2/$rel"
+}
+
+# ---------- legacy (manual install, Dutch names) -------------------------------
+
+LEGACY_SYSTEM_FILES="
+/usr/local/bin/converge-switch
+/usr/local/bin/converge-hyprland-session
+/usr/local/bin/converge-phosh-session
+/etc/greetd/converge-docked.toml
+/etc/greetd/converge-undocked.toml
+/etc/systemd/system/converge-switch.service
+/etc/systemd/system/converge-dock.service
+/etc/systemd/system/converge-actie@.service
+/etc/systemd/system/graphical.target.wants/converge-switch.service
+/etc/udev/rules.d/99-converge.rules
+/etc/udev/rules.d/70-converge-uinput.rules
+/etc/udev/rules.d/71-converge-touchscreen.rules
+/etc/polkit-1/rules.d/50-converge.rules
+/etc/sysctl.d/50-stille-console.conf
+"
+
+legacy_user_files() {
+    h=$HOME
+    c=${XDG_CONFIG_HOME:-$HOME/.config}
+    for f in desktopmodus hypr-start knoppen paneel qs rofi-iconen \
+             telefoonpaneel waybar-modem accu wallpaper; do
+        echo "$h/.local/bin/converge-$f"
+    done
+    echo "$c/systemd/user/hyprland-session.target"
+    echo "$c/xdg-desktop-portal/hyprland-portals.conf"
+    echo "$c/autostart/converge-knoppen-phosh.desktop"
+    echo "$h/.local/share/applications/nl.converge.Desktopmodus.desktop"
+    echo "$c/hypr/converge-schermen.conf"
+    # Copies of the old configs (only when they are ours)
+    for f in hypr/hyprlock.conf hypr/hypridle.conf waybar/config.jsonc \
+             waybar/style.css swaync/config.json swaync/style.css \
+             rofi/config.rasi rofi/converge.rasi; do
+        if grep -qi -e converge -e 'Plaats als' "$c/$f" 2>/dev/null; then
+            echo "$c/$f"
+        fi
+    done
+}
+
+# ---------- system part of setup (root) ---------------------------------------
+
+PAM_KEYRING="auth       optional   pam_gnome_keyring.so"
+PAM_ENV_CONF="$CONVERGE_DATA/pam/session-env.conf"
+PAM_ENV_LINE="session    optional   pam_env.so readenv=0 conffile=$PAM_ENV_CONF"
+
+setup_pam() {
+    # hyprlock: unlock the keyring with the lock screen PIN
+    if [ -f /etc/pam.d/hyprlock ]; then
+        if ! grep -q pam_gnome_keyring /etc/pam.d/hyprlock; then
+            echo "$PAM_KEYRING" >>/etc/pam.d/hyprlock
+            say "  /etc/pam.d/hyprlock: added pam_gnome_keyring"
+        fi
+    else
+        say "  ${C_WARN}/etc/pam.d/hyprlock not found (is hyprlock installed?)${C_OFF}"
+    fi
+
+    # Phosh lock screen: same, Phosh has no PAM file of its own by default
+    if [ ! -f /etc/pam.d/phosh ]; then
+        cat >/etc/pam.d/phosh <<'EOF'
+#%PAM-1.0
+# Created by converge setup: like "other", plus unlocking the keyring
+auth       include    base-auth
+auth       optional   pam_gnome_keyring.so
+account    include    base-account
+password   include    base-password
+session    include    base-session-noninteractive
+EOF
+        say "  /etc/pam.d/phosh: created (with pam_gnome_keyring)"
+    elif ! grep -q pam_gnome_keyring /etc/pam.d/phosh; then
+        echo "$PAM_KEYRING" >>/etc/pam.d/phosh
+        say "  /etc/pam.d/phosh: added pam_gnome_keyring"
+    fi
+
+    # greetd: register the automatic login as a wayland session
+    if [ ! -f /etc/pam.d/greetd ]; then
+        cat >/etc/pam.d/greetd <<EOF
+#%PAM-1.0
+# Created by converge setup
+auth       include    base-auth
+account    include    base-account
+password   include    base-password
+$PAM_ENV_LINE
+session    include    base-session
+EOF
+        say "  /etc/pam.d/greetd: created (with pam_env)"
+    elif grep -q 'converge-pam-env.conf' /etc/pam.d/greetd; then
+        sed -i "s|conffile=[^ ]*converge-pam-env.conf|conffile=$PAM_ENV_CONF|" /etc/pam.d/greetd
+        say "  /etc/pam.d/greetd: pam_env now uses $PAM_ENV_CONF"
+    elif ! grep -qF "$PAM_ENV_CONF" /etc/pam.d/greetd; then
+        if grep -q '^session' /etc/pam.d/greetd; then
+            awk -v l="$PAM_ENV_LINE" '!done && /^session/ { print l; done = 1 } { print }' \
+                /etc/pam.d/greetd >/etc/pam.d/greetd.converge-tmp &&
+                cat /etc/pam.d/greetd.converge-tmp >/etc/pam.d/greetd &&
+                rm -f /etc/pam.d/greetd.converge-tmp
+        else
+            echo "$PAM_ENV_LINE" >>/etc/pam.d/greetd
+        fi
+        say "  /etc/pam.d/greetd: added pam_env (session type wayland)"
+    fi
+}
+
+setup_system_conf() {
+    user=$1
+    template="$CONVERGE_DATA/system.conf"
+    # Old Dutch config from the manual install: migrate the values
+    if [ -f "$CONVERGE_SYSCONF" ] && grep -q -e '^VRAAG_TIMEOUT=' -e '^PRESTATIES=' -e '^CRASH_SECONDEN=' "$CONVERGE_SYSCONF"; then
+        old_timeout=$(get_key "$CONVERGE_SYSCONF" VRAAG_TIMEOUT)
+        old_perf=$(get_key "$CONVERGE_SYSCONF" PRESTATIES)
+        old_crash=$(get_key "$CONVERGE_SYSCONF" CRASH_SECONDEN)
+        cp "$CONVERGE_SYSCONF" "$CONVERGE_SYSCONF.legacy"
+        cp "$template" "$CONVERGE_SYSCONF"
+        [ -n "$old_timeout" ] && set_key "$CONVERGE_SYSCONF" PROMPT_TIMEOUT "$old_timeout"
+        [ -n "$old_perf" ] && set_key "$CONVERGE_SYSCONF" PERFORMANCE "$old_perf"
+        [ -n "$old_crash" ] && set_key "$CONVERGE_SYSCONF" CRASH_SECONDS "$old_crash"
+        say "  $CONVERGE_SYSCONF: migrated old settings (old file: $CONVERGE_SYSCONF.legacy)"
+    fi
+    [ -f "$CONVERGE_SYSCONF" ] || cp "$template" "$CONVERGE_SYSCONF"
+    # apk keeps a modified config and writes the new one as .apk-new
+    rm -f "$CONVERGE_SYSCONF.apk-new"
+    set_key "$CONVERGE_SYSCONF" CONVERGE_USER "\"$user\""
+    say "  $CONVERGE_SYSCONF: CONVERGE_USER=\"$user\""
+}
+
+setup_system() {
+    user=$1
+    [ "$(id -u)" = 0 ] || die "the system part of setup must run as root"
+    [ -n "$user" ] || die "no user given"
+    getent passwd "$user" >/dev/null || die "user '$user' does not exist"
+
+    heading "System settings"
+    setup_system_conf "$user"
+
+    heading "PAM (keyring unlock, session type)"
+    setup_pam
+
+    heading "Old manual install"
+    # Keep an active switch working once the old greetd configs are gone
+    "$CONVERGE_LIBEXEC/switch" migrate-runtime
+    backup_dir="/var/backups/converge-$(date +%Y%m%d-%H%M%S)"
+    found=""
+    for f in $LEGACY_SYSTEM_FILES; do
+        if [ -e "$f" ] || [ -L "$f" ]; then
+            found=1
+            backup "$f" "$backup_dir" ""
+        fi
+    done
+    # uinput was loaded by a file of its own
+    if [ "$(cat /etc/modules-load.d/uinput.conf 2>/dev/null)" = uinput ]; then
+        found=1
+        backup /etc/modules-load.d/uinput.conf "$backup_dir" ""
+    fi
+    if [ -f /etc/greetd/converge-pam-env.conf ] && ! grep -q converge-pam-env.conf /etc/pam.d/greetd 2>/dev/null; then
+        found=1
+        backup /etc/greetd/converge-pam-env.conf "$backup_dir" ""
+    fi
+    [ -n "$found" ] || say "  nothing found"
+
+    heading "Services and devices"
+    systemctl daemon-reload
+    systemctl enable converge-switch.service 2>&1 | sed 's/^/  /'
+    say "  converge-switch.service: $(systemctl is-enabled converge-switch.service 2>/dev/null)"
+    modprobe uinput 2>/dev/null
+    udevadm control --reload 2>/dev/null
+    udevadm trigger --sysname-match=uinput 2>/dev/null
+    udevadm trigger --subsystem-match=input 2>/dev/null
+    sysctl -q -p /usr/lib/sysctl.d/50-converge-quiet-console.conf 2>/dev/null
+    say "  udev rules reloaded, uinput loaded"
+}
+
+# ---------- user part of setup ----------------------------------------------------
+
+migrate_user_conf() {
+    conf=$1
+    grep -q -e '^TELEFOONPANEEL=' -e '^GELUID_NAAR_SCHERM=' -e '^SLAAPSTAND_BLOKKEREN=' \
+            -e '^KNOPPEN_' -e '^ACCU_MELDINGEN=' "$conf" 2>/dev/null || return 1
+    cp "$conf" "$conf.legacy"
+    cp "$CONVERGE_DATA/config/converge.conf" "$conf.new"
+    for pair in TELEFOONPANEEL:PHONE_TOUCHPAD GELUID_NAAR_SCHERM:AUDIO_TO_DISPLAY \
+                SLAAPSTAND_BLOKKEREN:BLOCK_SUSPEND KNOPPEN_DESKTOP:TITLEBAR_DESKTOP \
+                KNOPPEN_PHOSH:TITLEBAR_PHOSH ACCU_MELDINGEN:BATTERY_WARNINGS; do
+        old=${pair%%:*}; new=${pair#*:}
+        v=$(get_key "$conf" "$old")
+        [ -n "$v" ] && set_key "$conf.new" "$new" "$v"
+    done
+    mv "$conf.new" "$conf"
+    say "  $conf: migrated old settings (old file: $conf.legacy)"
+}
+
+setup_user() {
+    c=${XDG_CONFIG_HOME:-$HOME/.config}
+
+    heading "Your settings"
+    mkdir -p "$c/converge"
+    if [ -f "$c/converge/converge.conf" ]; then
+        migrate_user_conf "$c/converge/converge.conf" ||
+            say "  $c/converge/converge.conf: kept"
+    else
+        cp "$CONVERGE_DATA/config/converge.conf" "$c/converge/converge.conf"
+        say "  $c/converge/converge.conf: created"
+    fi
+
+    heading "Old manual install"
+    backup_dir="$HOME/.local/share/converge/backup-$(date +%Y%m%d-%H%M%S)"
+    found=""
+    for f in $(legacy_user_files); do
+        if [ -e "$f" ] || [ -L "$f" ]; then
+            found=1
+            backup "$f" "$backup_dir" "$HOME"
+        fi
+    done
+    [ -n "$found" ] || say "  nothing found"
+
+    heading "Hyprland config"
+    hc="$c/hypr/hyprland.conf"
+    if grep -q "$CONVERGE_DATA/config/hypr/hyprland.conf" "$hc" 2>/dev/null; then
+        say "  $hc: already uses the Converge config"
+    else
+        if [ -e "$hc" ]; then
+            backup "$hc" "$backup_dir" "$HOME"
+            say "  ${C_WARN}Your old hyprland.conf was moved to the backup. Copy your own"
+            say "  changes (keyboard layout, monitor scale, ...) into the new file.${C_OFF}"
+        fi
+        mkdir -p "$c/hypr"
+        cp "$CONVERGE_DATA/skel/hyprland.conf" "$hc"
+        say "  $hc: created (sources the Converge config)"
+    fi
+
+    systemctl --user daemon-reload 2>/dev/null
+}
+
+cmd_setup() {
+    yes=""
+    [ "$1" = "--yes" ] || [ "$1" = "-y" ] && yes=1
+    [ "$(id -u)" != 0 ] || die "run setup as your normal user, not as root (it uses sudo itself)"
+
+    say "${C_BOLD}Converge setup${C_OFF} for user ${C_BOLD}$(id -un)${C_OFF}"
+    say "This will:"
+    say "  - set CONVERGE_USER=$(id -un) in $CONVERGE_SYSCONF"
+    say "  - add keyring unlocking and the session type to PAM (hyprlock, phosh, greetd)"
+    say "  - enable converge-switch.service and reload the udev rules"
+    say "  - move files of an old manual install to a backup"
+    say "  - create ~/.config/converge/converge.conf and ~/.config/hypr/hyprland.conf"
+    if [ -z "$yes" ]; then
+        printf 'Continue? [Y/n] '
+        read -r answer
+        case "$answer" in [nN]*) say "Nothing done."; exit 1 ;; esac
+    fi
+
+    if command -v sudo >/dev/null 2>&1; then
+        sudo "$0" _setup-system "$(id -un)" || die "system part failed"
+    elif command -v doas >/dev/null 2>&1; then
+        doas "$0" _setup-system "$(id -un)" || die "system part failed"
+    else
+        die "need sudo or doas for the system part"
+    fi
+    setup_user
+
+    heading "Check"
+    cmd_doctor
+    echo
+    say "Done. Plug in a display to try it, or open the Converge app."
+}
+
+# ---------- doctor ----------------------------------------------------------------
+
+DOC_FAIL=0
+DOC_WARN=0
+QUIET=""
+
+ok()   { [ -n "$QUIET" ] || echo "  ${C_OK}✓${C_OFF} $*"; }
+warn() { DOC_WARN=$((DOC_WARN + 1)); [ -n "$QUIET" ] || echo "  ${C_WARN}!${C_OFF} $*"; }
+fail() { DOC_FAIL=$((DOC_FAIL + 1)); [ -n "$QUIET" ] || echo "  ${C_FAIL}✗${C_OFF} $*"; }
+section() { [ -n "$QUIET" ] || heading "$*"; }
+
+need_cmd() {
+    # $1 = command, $2 = package, $3 = fail|warn, $4 = what for
+    if command -v "$1" >/dev/null 2>&1; then
+        ok "$1"
+    else
+        "$3" "$1 missing (apk add $2)${4:+ - $4}"
+    fi
+}
+
+cmd_doctor() {
+    [ "$1" = "--quiet" ] && QUIET=1
+    converge_load_conf
+    c=${XDG_CONFIG_HOME:-$HOME/.config}
+
+    section "Programs"
+    need_cmd Hyprland hyprland fail
+    need_cmd hyprlock hyprlock fail
+    need_cmd hypridle hypridle warn "no locking when idle"
+    need_cmd waybar waybar warn "no top bar"
+    need_cmd swaync swaync warn "no notifications in desktop mode"
+    need_cmd rofi rofi warn "no app launcher"
+    need_cmd swaybg swaybg warn "no wallpaper"
+    need_cmd notify-send libnotify fail "cannot ask to switch"
+    need_cmd greetd greetd fail
+    need_cmd phosh-session phosh fail
+    need_cmd kgx gnome-console warn "Super+Enter opens no terminal"
+    need_cmd wpctl wireplumber warn "no audio switching"
+    if python3 -c 'import gi; gi.require_version("Adw", "1"); from gi.repository import Adw' 2>/dev/null; then
+        ok "python3 + libadwaita (Converge app)"
+    else
+        fail "python3 GTK4/libadwaita missing (apk add py3-gobject3 libadwaita)"
+    fi
+    if python3 -c 'import evdev' 2>/dev/null; then
+        ok "python3 evdev (touchpad)"
+    else
+        warn "python3 evdev missing (apk add py3-evdev) - no phone touchpad"
+    fi
+    if command -v fc-list >/dev/null 2>&1 && fc-list 2>/dev/null | grep -qi 'Adwaita Sans'; then
+        ok "font Adwaita Sans"
+    else
+        warn "font Adwaita Sans not found - a fallback font is used"
+    fi
+
+    section "System"
+    u=$(converge_user)
+    if [ -n "$CONVERGE_USER" ]; then
+        ok "user: $u"
+    elif [ -n "$u" ]; then
+        warn "user: $u (detected; run converge setup to set it)"
+    else
+        fail "no user found; run converge setup"
+    fi
+    if [ -r /etc/greetd/config.toml ] && grep -q '^\[default_session\]' /etc/greetd/config.toml; then
+        ok "greetd config has a default_session (greeter)"
+    else
+        fail "/etc/greetd/config.toml missing or without [default_session]"
+    fi
+    if [ "$(systemctl is-enabled converge-switch.service 2>/dev/null)" = enabled ]; then
+        ok "converge-switch.service enabled"
+    else
+        fail "converge-switch.service not enabled (sudo systemctl enable converge-switch.service)"
+    fi
+    if [ -e /dev/uinput ]; then
+        if [ -w /dev/uinput ]; then ok "/dev/uinput writable (touchpad)"
+        else warn "/dev/uinput not writable for you (only works in the session on the device itself)"; fi
+    else
+        warn "/dev/uinput missing (sudo modprobe uinput)"
+    fi
+
+    section "PAM"
+    if grep -q pam_gnome_keyring /etc/pam.d/hyprlock 2>/dev/null; then
+        ok "hyprlock unlocks the keyring"
+    else
+        fail "pam_gnome_keyring missing in /etc/pam.d/hyprlock (overwritten by an update? run converge setup)"
+    fi
+    if grep -q pam_gnome_keyring /etc/pam.d/phosh 2>/dev/null; then
+        ok "Phosh lock screen unlocks the keyring"
+    else
+        warn "pam_gnome_keyring missing in /etc/pam.d/phosh (run converge setup)"
+    fi
+    if grep -qF "$CONVERGE_DATA/pam/session-env.conf" /etc/pam.d/greetd 2>/dev/null; then
+        ok "greetd registers the automatic login as a wayland session"
+    else
+        fail "pam_env line missing in /etc/pam.d/greetd (run converge setup)"
+    fi
+    for f in hyprlock phosh greetd; do
+        [ -e "/etc/pam.d/$f.apk-new" ] && warn "/etc/pam.d/$f.apk-new exists: compare it with /etc/pam.d/$f"
+    done
+
+    section "Your config"
+    if grep -q "$CONVERGE_DATA/config/hypr/hyprland.conf" "$c/hypr/hyprland.conf" 2>/dev/null; then
+        ok "~/.config/hypr/hyprland.conf sources the Converge config"
+    else
+        fail "~/.config/hypr/hyprland.conf does not source $CONVERGE_DATA/config/hypr/hyprland.conf (run converge setup)"
+    fi
+    if [ -f "$c/converge/converge.conf" ]; then
+        if grep -q -e '^TELEFOONPANEEL=' -e '^GELUID_NAAR_SCHERM=' "$c/converge/converge.conf"; then
+            warn "~/.config/converge/converge.conf uses old setting names (run converge setup)"
+        else
+            ok "~/.config/converge/converge.conf"
+        fi
+    else
+        warn "~/.config/converge/converge.conf missing (defaults are used)"
+    fi
+    for f in hypr/hyprlock.conf hypr/hypridle.conf waybar/config.jsonc waybar/style.css \
+             swaync/config.json swaync/style.css rofi/config.rasi; do
+        [ -e "$c/converge/$f" ] && ok "override in use: ~/.config/converge/$f"
+    done
+
+    section "Old manual install"
+    leftovers=""
+    for f in $LEGACY_SYSTEM_FILES $(legacy_user_files); do
+        [ -e "$f" ] && leftovers="$leftovers $f"
+    done
+    if [ -n "$leftovers" ]; then
+        for f in $leftovers; do warn "leftover: $f"; done
+        warn "run converge setup to move these to a backup"
+    else
+        ok "no leftovers"
+    fi
+
+    if [ -z "$QUIET" ]; then
+        echo
+        if [ "$DOC_FAIL" -gt 0 ]; then
+            echo "${C_FAIL}$DOC_FAIL problem(s)${C_OFF}, $DOC_WARN warning(s)."
+        elif [ "$DOC_WARN" -gt 0 ]; then
+            echo "${C_OK}No problems${C_OFF}, $DOC_WARN warning(s)."
+        else
+            echo "${C_OK}All good.${C_OFF}"
+        fi
+    fi
+    [ "$DOC_FAIL" -eq 0 ]
+}
+
+# ---------- other commands --------------------------------------------------------
+
+usage() {
+    cat <<EOF
+Converge $CONVERGE_VERSION - Phosh on the phone, Hyprland when docked
+
+Usage: $ME <command>
+
+  setup [--yes]          finish the installation (run as your normal user)
+  doctor [--quiet]       check the installation and report problems
+  status                 show what is active right now
+  dock                   switch to desktop mode (a display must be connected)
+  phone                  leave desktop mode, back to Phosh
+  touchpad on|off|toggle phone screen as touchpad + keyboard (desktop mode)
+  reset                  back to the normal greeter login (uses sudo)
+  version                show the version
+
+Settings: ~/.config/converge/converge.conf (or the Converge app)
+          /etc/converge.conf (system)
+EOF
+}
+
+case "$1" in
+    setup)         shift; cmd_setup "$@" ;;
+    _setup-system) setup_system "$2" ;;
+    doctor)        shift; cmd_doctor "$@" ;;
+    status)        exec "$CONVERGE_LIBEXEC/switch" status ;;
+    dock)          exec systemctl start --no-block converge-dock.service ;;
+    phone)         exec systemctl start --no-block converge-action@phone.service ;;
+    touchpad)      exec "$CONVERGE_LIBEXEC/desktop" touchpad "$2" ;;
+    reset)
+        if [ "$(id -u)" = 0 ]; then exec "$CONVERGE_LIBEXEC/switch" reset
+        else exec sudo "$CONVERGE_LIBEXEC/switch" reset; fi ;;
+    version|--version|-V) echo "converge $CONVERGE_VERSION" ;;
+    help|--help|-h|"") usage ;;
+    *) usage >&2; exit 2 ;;
+esac

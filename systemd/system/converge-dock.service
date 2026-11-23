@@ -1,0 +1,8 @@
+# Started by the Converge app: switch to desktop mode if a display is connected
+[Unit]
+Description=Converge: switch to desktop mode (Hyprland)
+Documentation=https://github.com/jeweet/converge
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/converge/switch manual
