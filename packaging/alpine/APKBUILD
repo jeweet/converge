@@ -2,7 +2,7 @@
 # Maintainer: jeweet <jeweet@users.noreply.github.com>
 pkgname=converge
 pkgver=0.2.0
-pkgrel=0
+pkgrel=1
 pkgdesc="Phosh on the phone, Hyprland when docked: convergence for postmarketOS"
 url="https://github.com/jeweet/converge"
 arch="noarch"
@@ -29,8 +29,8 @@ depends="
 	xdg-desktop-portal-gtk
 	xdg-desktop-portal-hyprland
 	"
-# Optional, used when installed: swayosd (volume indicator), playerctl
-# (media keys), ddcutil (brightness of the external display)
+# Optional, used when installed: playerctl (media keys), ddcutil
+# (brightness of the external display)
 install="$pkgname.post-install $pkgname.post-upgrade $pkgname.pre-deinstall"
 # Tarball made by "make dist" from the git checkout
 source="$pkgname-$pkgver.tar.gz"

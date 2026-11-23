@@ -4,15 +4,17 @@
 
 - Keyboard layouts and XKB options follow GNOME; Super+Space switches
   layouts when there are several
-- The GNOME accent color is used for window borders, the bar, notifications,
-  the lock screen and the volume indicator
+- The GNOME accent color is used for window borders, the bar, notifications
+  and the lock screen
 - Trusted displays: switch to desktop mode without asking
 - Display profiles: scale and resolution per display (recognized by EDID)
-- GNOME-style volume indicator (swayosd) for media keys, with fallback to
-  wpctl; brightness keys for the external display via ddcutil; media keys
-  via playerctl
-- Converge app: displays section and the installation check
-  (`converge doctor --plain`)
+- Volume and microphone keys (wpctl), brightness keys for the external
+  display (ddcutil), media keys (playerctl)
+- Converge app: new phone-friendly layout with a page per display and for
+  the installation check (`converge doctor --plain`); "Back to phone" when
+  opened in desktop mode
+- `converge doctor` checks the udev access rule of /dev/uinput instead of
+  your own access (no false warning over SSH)
 - Find the greetd config greetd really uses (e.g. Phrog's own)
 
 ## 0.1.0 - 2026-11-23

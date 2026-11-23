@@ -9,8 +9,7 @@
 #   desktop bar             waybar
 #   desktop notifications   swaync
 #   desktop launcher        toggle the app launcher (rofi)
-#   desktop osd             volume/brightness indicator (swayosd)
-#   desktop volume up|down|mute|mic-mute    media keys, with indicator
+#   desktop volume up|down|mute|mic-mute    volume keys
 #   desktop brightness up|down              external display (ddcutil)
 #   desktop touchpad on|off|toggle   phone screen as touchpad + keyboard
 #
@@ -102,32 +101,16 @@ launcher() {
     exec rofi -config "$(converge_config rofi/config.rasi)" -show drun
 }
 
-# ---------- indicator and media keys ------------------------------------------
-
-osd() {
-    command -v swayosd-server >/dev/null || { log "swayosd not installed: no volume indicator"; return 0; }
-    exec swayosd-server --top-margin 0.85 -s "$(converge_render swayosd/style.css)"
-}
-
-# Use swayosd (shows the indicator) when it runs, else change it quietly
-osd_running() { command -v swayosd-client >/dev/null && pgrep -x swayosd-server >/dev/null; }
+# ---------- media keys ------------------------------------------------------------
 
 volume() {
-    if osd_running; then
-        case "$1" in
-            up)       swayosd-client --output-volume raise ;;
-            down)     swayosd-client --output-volume lower ;;
-            mute)     swayosd-client --output-volume mute-toggle ;;
-            mic-mute) swayosd-client --input-volume mute-toggle ;;
-        esac
-    else
-        case "$1" in
-            up)       wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ ;;
-            down)     wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- ;;
-            mute)     wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
-            mic-mute) wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle ;;
-        esac
-    fi
+    case "$1" in
+        up)       wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ ;;
+        down)     wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- ;;
+        mute)     wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
+        mic-mute) wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle ;;
+        *)        return 2 ;;
+    esac
 }
 
 # Brightness of the external display over DDC/CI (if the monitor and the
@@ -139,15 +122,6 @@ brightness() {
         down) ddcutil --noverify setvcp 10 - 10 >/dev/null 2>&1 ;;
         *)    return 2 ;;
     esac
-    if osd_running; then
-        # "VCP code 0x10 (Brightness): current value = 60, max value = 100"
-        v=$(ddcutil getvcp 10 2>/dev/null | sed -n 's/.*current value *= *\([0-9]*\), *max value *= *\([0-9]*\).*/\1 \2/p')
-        cur=${v% *}; max=${v#* }
-        if [ -n "$cur" ] && [ -n "$max" ] && [ "$max" -gt 0 ]; then
-            swayosd-client --custom-icon display-brightness-symbolic \
-                --custom-progress "$(awk -v c="$cur" -v m="$max" 'BEGIN { printf "%.2f", c / m }')"
-        fi
-    fi
 }
 
 # ---------- touchpad -------------------------------------------------------------
@@ -197,11 +171,10 @@ case "$1" in
     bar)           bar ;;
     notifications) notifications ;;
     launcher)      launcher ;;
-    osd)           osd ;;
     volume)        volume "$2" ;;
     brightness)    brightness "$2" ;;
     touchpad)      touchpad "$2" ;;
     *)
-        echo "usage: $0 start|lock|idle|bar|notifications|launcher|osd|volume ...|brightness ...|touchpad ..." >&2
+        echo "usage: $0 start|lock|idle|bar|notifications|launcher|volume ...|brightness ...|touchpad ..." >&2
         exit 2 ;;
 esac

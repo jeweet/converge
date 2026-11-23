@@ -18,8 +18,8 @@ see [Other devices](#other-devices).
   either lock screen.
 - **A GNOME-like desktop.** Waybar styled like the GNOME top bar, swaync
   notifications with quick settings (Wi-Fi, mobile data, Bluetooth, VPN), a
-  rofi app grid (Super+R), GNOME-style volume indicator for media keys, the
-  Phosh wallpaper, dark mode, Adwaita Sans.
+  rofi app grid (Super+R), media keys, the Phosh wallpaper, dark mode,
+  Adwaita Sans.
 - **Follows your GNOME settings.** Keyboard layouts (Settings > Keyboard)
   and the accent color (Settings > Appearance) carry over to Hyprland, the
   bar, notifications and the lock screen.
@@ -140,7 +140,7 @@ at boot, you log in to Phosh as usual and switch with the Converge app.
 | Super+Shift+arrows | Move window |
 | Super+drag | Move window (left button) / resize (right button) |
 | Super+Space | Next keyboard layout (with several GNOME layouts) |
-| Volume/mute keys | Volume with an on-screen indicator |
+| Volume/mute keys | Volume, mute, microphone mute |
 | Brightness keys | Brightness of the external display (ddcutil) |
 | Play/next/previous | Media players (playerctl) |
 | Super+Shift+E | Leave desktop mode |
@@ -209,7 +209,6 @@ switches between them, like in GNOME. Your own `input { ... }` lines in
 
 ### Optional extras
 
-- `swayosd`: the GNOME-style volume indicator (volume keys work without it)
 - `playerctl`: play/pause/next keys
 - `ddcutil`: brightness keys for the external display, if the monitor and
   the dock support DDC/CI
@@ -245,7 +244,6 @@ Converge starts these with the packaged config from
 | Waybar | `~/.config/converge/waybar/config.jsonc`, `style.css` |
 | swaync | `~/.config/converge/swaync/config.json`, `style.css` |
 | rofi | `~/.config/converge/rofi/config.rasi` |
-| volume indicator | `~/.config/converge/swayosd/style.css` |
 | hyprlock | `~/.config/converge/hypr/hyprlock.conf` |
 | hypridle | `~/.config/converge/hypr/hypridle.conf` |
 

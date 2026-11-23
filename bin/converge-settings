@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Converge: the settings app for Phosh (GTK4/libadwaita).
+"""Converge: the settings app (GTK4/libadwaita).
 
-Shows whether an external display is connected, switches to desktop mode
-(Hyprland) and manages the settings in ~/.config/converge/converge.conf.
+In Phosh it shows whether an external display is connected and switches to
+desktop mode; in desktop mode it switches back to the phone. It manages the
+settings in ~/.config/converge/converge.conf, the remembered displays in
+~/.config/converge/displays.conf, and shows the installation check.
 """
 
 import glob
@@ -20,6 +22,7 @@ import converge_displays as displays_mod  # noqa: E402
 
 APP_ID = "io.github.jeweet.Converge"
 DOCK_SERVICE = "converge-dock.service"
+PHONE_SERVICE = "converge-action@phone.service"
 
 CONF = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
@@ -30,14 +33,19 @@ SCALES = [("auto", "Automatic"), ("1", "100%"), ("1.25", "125%"),
 
 # (key, title, subtitle, default)
 OPTIONS = [
-    ("PHONE_TOUCHPAD", "Phone screen as touchpad and keyboard",
-     "The phone screen stays on in desktop mode as a touchpad and keyboard "
-     "(Super+T shows or hides it)", False),
-    ("AUDIO_TO_DISPLAY", "Audio through the external display",
+    ("PHONE_TOUCHPAD", "Phone screen as touchpad",
+     "Touchpad and keyboard on the phone screen in desktop mode (Super+T)",
+     False),
+    ("AUDIO_TO_DISPLAY", "Audio through the display",
      "Sound plays through the monitor or TV while docked", True),
-    ("BLOCK_SUSPEND", "No suspend in desktop mode",
+    ("BLOCK_SUSPEND", "No suspend while docked",
      "Locking and turning off the screen still happen when idle", True),
 ]
+
+
+def in_desktop_mode():
+    return bool(os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")) or \
+        os.environ.get("XDG_CURRENT_DESKTOP", "") == "Hyprland"
 
 
 def read_conf():
@@ -75,27 +83,23 @@ def write_conf(key, value):
     os.replace(tmp, CONF)
 
 
-def external_display():
-    """(name, resolution) of a connected external display, or None."""
-    for status in sorted(glob.glob("/sys/class/drm/card*-*/status")):
-        connector = os.path.basename(os.path.dirname(status))  # card0-DP-1
-        if "DSI" in connector or "eDP" in connector:
-            continue
-        try:
-            with open(status) as f:
-                if f.read().strip() != "connected":
-                    continue
-        except OSError:
-            continue
-        name = connector.split("-", 1)[1] if "-" in connector else connector
-        resolution = ""
-        try:
-            with open(os.path.join(os.path.dirname(status), "modes")) as f:
-                resolution = f.readline().strip()
-        except OSError:
-            pass
-        return name, resolution
-    return None
+def scale_label(value):
+    for v, label in SCALES:
+        if v == value:
+            return label
+    return value
+
+
+def page(title, content, tag=None):
+    """A navigation page with a header bar around the given content."""
+    toolbar = Adw.ToolbarView()
+    header = Adw.HeaderBar()
+    toolbar.add_top_bar(header)
+    toolbar.set_content(content)
+    p = Adw.NavigationPage(title=title, child=toolbar)
+    if tag:
+        p.set_tag(tag)
+    return p, toolbar, header
 
 
 class Window(Adw.ApplicationWindow):
@@ -103,38 +107,50 @@ class Window(Adw.ApplicationWindow):
         super().__init__(application=app, title="Converge")
         self.set_default_size(360, 720)
         self.busy = False
+        self.desktop = in_desktop_mode()
+        self.connected_ids = None
+        self.display_rows = []
+        self.check_results = []
 
         self.toasts = Adw.ToastOverlay()
-        toolbar = Adw.ToolbarView()
-        toolbar.add_top_bar(Adw.HeaderBar())
+        self.nav = Adw.NavigationView()
+        self.toasts.set_child(self.nav)
+        self.set_content(self.toasts)
+
+        prefs = Adw.PreferencesPage()
+        main, toolbar, _header = page("Converge", prefs, "main")
 
         # Shown when "converge doctor" finds problems
-        self.banner = Adw.Banner(
-            title="Converge is not set up completely",
-            button_label="Details")
-        self.banner.connect("button-clicked",
-                            lambda *_a: self.check_row.set_expanded(True))
+        self.banner = Adw.Banner(title="Converge is not set up completely",
+                                 button_label="Details")
+        self.banner.connect("button-clicked", lambda *_a: self.show_check())
         toolbar.add_top_bar(self.banner)
 
-        self.status = Adw.StatusPage()
-        self.status.set_icon_name("video-display-symbolic")
-
-        buttons = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        buttons.set_halign(Gtk.Align.CENTER)
-
-        self.button = Gtk.Button(label="Switch to desktop mode")
+        # -- status and the switch button --
+        status = Adw.PreferencesGroup()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        icon = Gtk.Image(icon_name="video-display-symbolic", pixel_size=96)
+        icon.add_css_class("dim-label")
+        box.append(icon)
+        self.title = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER)
+        self.title.add_css_class("title-1")
+        box.append(self.title)
+        self.description = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER)
+        self.description.add_css_class("dim-label")
+        box.append(self.description)
+        self.button = Gtk.Button(halign=Gtk.Align.CENTER)
         self.button.add_css_class("pill")
-        self.button.add_css_class("suggested-action")
         self.button.connect("clicked", self.switch)
-        buttons.append(self.button)
+        box.append(self.button)
+        self.spinner = Gtk.Spinner(visible=False)
+        box.append(self.spinner)
+        status.add(box)
+        prefs.add(status)
 
-        self.spinner = Gtk.Spinner()
-        self.spinner.set_visible(False)
-        buttons.append(self.spinner)
-
-        self.status.set_child(buttons)
-
-        group = Adw.PreferencesGroup(
+        # -- desktop mode options --
+        options = Adw.PreferencesGroup(
             title="Desktop mode",
             description="Applies the next time you switch")
         values = read_conf()
@@ -142,48 +158,229 @@ class Window(Adw.ApplicationWindow):
             row = Adw.SwitchRow(title=title, subtitle=subtitle)
             row.set_active(values.get(key, "1" if default else "0") == "1")
             row.connect("notify::active", self.option_changed, key)
-            group.add(row)
-        # Displays: trusted displays and display profiles
+            options.add(row)
+        prefs.add(options)
+
+        # -- displays --
         self.display_group = Adw.PreferencesGroup(
             title="Displays",
-            description="Remembered per display. Scale and resolution apply "
-                        "the next time you switch.")
-        self.display_rows = []
-        self.connected_ids = None
+            description="Settings per display, recognized wherever you "
+                        "connect it")
+        prefs.add(self.display_group)
 
-        # Installation check (converge doctor)
-        self.check_group = Adw.PreferencesGroup(title="Installation")
-        rerun = Gtk.Button(icon_name="view-refresh-symbolic",
-                           tooltip_text="Check again")
-        rerun.add_css_class("flat")
-        rerun.connect("clicked", lambda *_a: self.check_setup())
-        self.check_group.set_header_suffix(rerun)
-        self.check_row = Adw.ExpanderRow(title="Checking…")
-        self.check_group.add(self.check_row)
-        self.check_children = []
+        # -- installation check --
+        check = Adw.PreferencesGroup(title="Installation")
+        self.check_row = Adw.ActionRow(title="Checking…", use_markup=False)
+        self.check_row.set_activatable(True)
+        self.check_row.connect("activated", lambda *_a: self.show_check())
+        self.check_icon = Gtk.Image(icon_name="content-loading-symbolic")
+        self.check_row.add_prefix(self.check_icon)
+        self.check_row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        check.add(self.check_row)
+        prefs.add(check)
 
-        pages = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
-        for g in (group, self.display_group, self.check_group):
-            pages.append(g)
-        clamp = Adw.Clamp(maximum_size=520)
-        clamp.set_margin_start(12)
-        clamp.set_margin_end(12)
-        clamp.set_margin_bottom(24)
-        clamp.set_child(pages)
-
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        content.append(self.status)
-        content.append(clamp)
-        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
-        scroller.set_child(content)
-        toolbar.set_content(scroller)
-        self.toasts.set_child(toolbar)
-        self.set_content(self.toasts)
+        self.nav.add(main)
 
         self.refresh()
-        # Follow plugging and unplugging live
         GLib.timeout_add_seconds(1, self.refresh)
         self.check_setup()
+
+    # -- status --
+
+    def refresh(self):
+        if self.busy:
+            return True
+        connected = displays_mod.external_displays()
+        ids = [d["id"] for d in connected]
+        if ids != self.connected_ids:
+            self.connected_ids = ids
+            self.rebuild_displays(connected)
+
+        if self.desktop:
+            self.title.set_label("Desktop mode")
+            self.description.set_label(
+                "You are working on the external display. Unplug the phone "
+                "or go back to the phone here.")
+            self.button.set_label("Back to phone")
+            self.button.remove_css_class("suggested-action")
+            self.button.set_sensitive(True)
+        elif connected:
+            d = connected[0]
+            self.title.set_label(d["name"])
+            self.description.set_label(
+                "Phosh closes and Hyprland starts on the display. "
+                "Unlock there with your PIN.")
+            self.button.set_label("Switch to desktop mode")
+            self.button.add_css_class("suggested-action")
+            self.button.set_sensitive(True)
+        else:
+            self.title.set_label("No display connected")
+            self.description.set_label(
+                "Connect a monitor over USB-C to switch to desktop mode.")
+            self.button.set_label("Switch to desktop mode")
+            self.button.add_css_class("suggested-action")
+            self.button.set_sensitive(False)
+        return True
+
+    def option_changed(self, row, _pspec, key):
+        try:
+            write_conf(key, "1" if row.get_active() else "0")
+        except OSError as error:
+            self.toast(f"Saving failed: {error}")
+
+    def switch(self, _button):
+        self.busy = True
+        self.button.set_sensitive(False)
+        self.button.set_label("Switching…")
+        self.spinner.set_visible(True)
+        self.spinner.start()
+        unit = PHONE_SERVICE if self.desktop else DOCK_SERVICE
+        try:
+            proc = Gio.Subprocess.new(
+                ["systemctl", "start", "--no-block", unit],
+                Gio.SubprocessFlags.STDERR_PIPE)
+        except GLib.Error as error:
+            self.failed(error.message)
+            return
+        proc.communicate_utf8_async(None, None, self.started)
+
+    def started(self, proc, result):
+        try:
+            _, _, err = proc.communicate_utf8_finish(result)
+        except GLib.Error as error:
+            self.failed(error.message)
+            return
+        if not proc.get_successful():
+            self.failed((err or "").strip() or "unknown error")
+        # On success the session closes by itself
+
+    def failed(self, message):
+        self.busy = False
+        self.spinner.stop()
+        self.spinner.set_visible(False)
+        self.refresh()
+        self.toast(f"Switching failed: {message}")
+
+    def toast(self, text):
+        self.toasts.add_toast(Adw.Toast.new(text))
+
+    # -- displays --
+
+    def rebuild_displays(self, connected=None):
+        if connected is None:
+            connected = displays_mod.external_displays()
+        for row in self.display_rows:
+            self.display_group.remove(row)
+        self.display_rows = []
+        remembered = displays_mod.load()
+        entries = [(d["id"], d["name"], d) for d in connected]
+        shown = {d["id"] for d in connected}
+        entries += [(i, d.get("name") or i, None)
+                    for i, d in remembered.items() if i not in shown]
+        for ident, name, info in entries:
+            s = displays_mod.settings(ident, remembered)
+            parts = ["Connected" if info else "Not connected",
+                     scale_label(s["scale"])]
+            if s["trusted"] == "1":
+                parts.append("no question")
+            row = Adw.ActionRow(title=name, subtitle=" · ".join(parts),
+                                use_markup=False, activatable=True)
+            row.add_prefix(Gtk.Image(icon_name="video-display-symbolic"))
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            row.connect("activated", lambda _r, i=ident, n=name, d=info:
+                        self.show_display(i, n, d))
+            self.display_group.add(row)
+            self.display_rows.append(row)
+        if not entries:
+            row = Adw.ActionRow(title="No displays yet",
+                                subtitle="Connect a display to set it up here")
+            self.display_group.add(row)
+            self.display_rows.append(row)
+
+    def show_display(self, ident, name, info):
+        remembered = displays_mod.load()
+        s = displays_mod.settings(ident, remembered)
+        prefs = Adw.PreferencesPage()
+
+        group = Adw.PreferencesGroup(
+            description="Applies the next time you switch to desktop mode")
+        trusted = Adw.SwitchRow(
+            title="Switch without asking",
+            subtitle="Desktop mode starts as soon as this display is "
+                     "connected. It still starts locked.")
+        trusted.set_active(s["trusted"] == "1")
+        trusted.connect("notify::active", lambda r, _p: self.save_display(
+            ident, name, trusted="1" if r.get_active() else "0"))
+        group.add(trusted)
+
+        scales = list(SCALES)
+        if s["scale"] not in [v for v, _ in scales]:
+            scales.append((s["scale"], s["scale"]))
+        scale = Adw.ComboRow(title="Scale",
+                             model=Gtk.StringList.new([t for _, t in scales]))
+        scale.set_selected([v for v, _ in scales].index(s["scale"]))
+        scale.connect("notify::selected", lambda r, _p: self.save_display(
+            ident, name, scale=scales[r.get_selected()][0]))
+        group.add(scale)
+
+        modes = [("preferred", "Preferred"), ("highres", "Highest")]
+        modes += [(m, m) for m in (info["modes"] if info else [])]
+        if s["mode"] not in [v for v, _ in modes]:
+            modes.append((s["mode"], s["mode"]))
+        mode = Adw.ComboRow(title="Resolution",
+                            model=Gtk.StringList.new([t for _, t in modes]))
+        mode.set_selected([v for v, _ in modes].index(s["mode"]))
+        mode.connect("notify::selected", lambda r, _p: self.save_display(
+            ident, name, mode=modes[r.get_selected()][0]))
+        group.add(mode)
+        prefs.add(group)
+
+        if info:
+            about = Adw.PreferencesGroup()
+            about.add(Adw.ActionRow(title="Connector", subtitle=info["connector"],
+                                    subtitle_selectable=True))
+            about.add(Adw.ActionRow(title="Display ID", subtitle=ident,
+                                    subtitle_selectable=True))
+            prefs.add(about)
+
+        forget_group = Adw.PreferencesGroup()
+        forget = Gtk.Button(label="Forget Display", halign=Gtk.Align.CENTER)
+        forget.add_css_class("pill")
+        forget.add_css_class("destructive-action")
+        forget.set_sensitive(ident in remembered)
+        forget.connect("clicked", lambda *_a: self.forget_display(ident))
+        forget_group.add(forget)
+        prefs.add(forget_group)
+        self.forget_button = forget
+
+        p, _toolbar, _header = page(name, prefs)
+        self.nav.push(p)
+
+    def save_display(self, ident, name, **changes):
+        try:
+            remembered = displays_mod.load()
+            entry = displays_mod.settings(ident, remembered)
+            entry["name"] = name
+            entry.update(changes)
+            remembered[ident] = entry
+            displays_mod.save(remembered)
+        except OSError as error:
+            self.toast(f"Saving failed: {error}")
+            return
+        self.forget_button.set_sensitive(True)
+        self.rebuild_displays()
+
+    def forget_display(self, ident):
+        remembered = displays_mod.load()
+        remembered.pop(ident, None)
+        try:
+            displays_mod.save(remembered)
+        except OSError as error:
+            self.toast(f"Saving failed: {error}")
+            return
+        self.nav.pop()
+        self.rebuild_displays()
+        self.toast("Display forgotten")
 
     # -- installation check --
 
@@ -205,222 +402,68 @@ class Window(Adw.ApplicationWindow):
             _, out, _ = proc.communicate_utf8_finish(result)
         except GLib.Error:
             return
-        for row in self.check_children:
-            self.check_row.remove(row)
-        self.check_children = []
-        fails = warns = oks = 0
+        self.check_results = []
         for line in (out or "").splitlines():
             parts = line.split("\t", 2)
-            if len(parts) != 3:
-                continue
-            state, section, message = parts
-            if state == "ok":
-                oks += 1
-                continue
-            if state == "fail":
-                fails += 1
-                icon = "dialog-error-symbolic"
-            else:
-                warns += 1
-                icon = "dialog-warning-symbolic"
-            row = Adw.ActionRow(title=message, subtitle=section,
-                                use_markup=False, title_lines=0)
-            image = Gtk.Image(icon_name=icon)
-            if state == "fail":
-                image.add_css_class("error")
-            else:
-                image.add_css_class("warning")
-            row.add_prefix(image)
-            self.check_row.add_row(row)
-            self.check_children.append(row)
+            if len(parts) == 3:
+                self.check_results.append(parts)
+        fails = sum(1 for r in self.check_results if r[0] == "fail")
+        warns = sum(1 for r in self.check_results if r[0] == "warn")
+        oks = sum(1 for r in self.check_results if r[0] == "ok")
+        for css in ("error", "warning", "success"):
+            self.check_icon.remove_css_class(css)
         if fails:
-            self.check_row.set_title(f"{fails} problem(s), {warns} warning(s)")
-            self.check_row.set_subtitle("Run “converge setup” in a terminal to fix most of them")
+            self.check_row.set_title(f"{fails} problem(s)")
+            self.check_row.set_subtitle("Run “converge setup” in a terminal "
+                                        "to fix most of them")
+            self.check_icon.set_from_icon_name("dialog-error-symbolic")
+            self.check_icon.add_css_class("error")
         elif warns:
-            self.check_row.set_title(f"No problems, {warns} warning(s)")
-            self.check_row.set_subtitle(f"{oks} checks passed")
+            self.check_row.set_title("Set up, with warnings")
+            self.check_row.set_subtitle(f"{warns} warning(s), {oks} checks passed")
+            self.check_icon.set_from_icon_name("dialog-warning-symbolic")
+            self.check_icon.add_css_class("warning")
         else:
             self.check_row.set_title("Everything is set up")
             self.check_row.set_subtitle(f"{oks} checks passed")
-        self.check_row.set_enable_expansion(bool(self.check_children))
+            self.check_icon.set_from_icon_name("emblem-ok-symbolic")
+            self.check_icon.add_css_class("success")
         self.banner.set_revealed(fails > 0)
 
-    # -- displays --
+    def show_check(self):
+        prefs = Adw.PreferencesPage()
+        groups = {}
+        order = {"fail": 0, "warn": 1, "ok": 2}
+        for state, section, message in sorted(
+                self.check_results, key=lambda r: order.get(r[0], 3)):
+            title = {"fail": "Problems", "warn": "Warnings"}.get(state, "Passed")
+            if title not in groups:
+                groups[title] = Adw.PreferencesGroup(title=title)
+                prefs.add(groups[title])
+            row = Adw.ActionRow(title=message, subtitle=section,
+                                use_markup=False, title_lines=0)
+            icon, css = {"fail": ("dialog-error-symbolic", "error"),
+                         "warn": ("dialog-warning-symbolic", "warning")}.get(
+                state, ("emblem-ok-symbolic", "success"))
+            image = Gtk.Image(icon_name=icon)
+            image.add_css_class(css)
+            row.add_prefix(image)
+            groups[title].add(row)
+        if not self.check_results:
+            prefs.add(Adw.PreferencesGroup(
+                title="No results",
+                description="converge doctor did not report anything"))
 
-    def rebuild_displays(self, connected):
-        for row in self.display_rows:
-            self.display_group.remove(row)
-        self.display_rows = []
-        remembered = displays_mod.load()
-        shown = set()
-        for d in connected:
-            self._add_display_row(d["id"], d["name"], d["connector"],
-                                  d["modes"], remembered)
-            shown.add(d["id"])
-        for ident, d in remembered.items():
-            if ident not in shown:
-                self._add_display_row(ident, d.get("name") or ident, None,
-                                      [], remembered)
-        if not self.display_rows:
-            row = Adw.ActionRow(
-                title="No displays yet",
-                subtitle="Connect a display to set it up here")
-            self.display_group.add(row)
-            self.display_rows.append(row)
+        p, _toolbar, header = page("Installation", prefs)
+        rerun = Gtk.Button(icon_name="view-refresh-symbolic",
+                           tooltip_text="Check again")
+        rerun.connect("clicked", self.recheck)
+        header.pack_end(rerun)
+        self.nav.push(p)
 
-    def _add_display_row(self, ident, name, connector, modes, remembered):
-        settings = displays_mod.settings(ident, remembered)
-        row = Adw.ExpanderRow(title=name, use_markup=False)
-        row.set_subtitle(f"Connected · {connector}" if connector else "Not connected")
-        row.add_prefix(Gtk.Image(icon_name="video-display-symbolic"))
-        if connector:
-            row.set_expanded(True)
-
-        trusted = Adw.SwitchRow(
-            title="Switch without asking",
-            subtitle="Go to desktop mode as soon as this display is "
-                     "connected. Hyprland still starts locked.")
-        trusted.set_active(settings["trusted"] == "1")
-        trusted.connect("notify::active", lambda r, _p: self.save_display(
-            ident, name, trusted="1" if r.get_active() else "0"))
-        row.add_row(trusted)
-
-        scale_values = [v for v, _ in SCALES]
-        if settings["scale"] not in scale_values:
-            SCALES_EXTRA = (settings["scale"], f"{settings['scale']} (custom)")
-            scale_items = SCALES + [SCALES_EXTRA]
-        else:
-            scale_items = SCALES
-        scale = Adw.ComboRow(title="Scale",
-                             model=Gtk.StringList.new([t for _, t in scale_items]))
-        scale.set_selected([v for v, _ in scale_items].index(settings["scale"]))
-        scale.connect("notify::selected", lambda r, _p: self.save_display(
-            ident, name, scale=scale_items[r.get_selected()][0]))
-        row.add_row(scale)
-
-        mode_items = [("preferred", "Preferred"), ("highres", "Highest")]
-        mode_items += [(m, m) for m in modes]
-        if settings["mode"] not in [v for v, _ in mode_items]:
-            mode_items.append((settings["mode"], settings["mode"]))
-        mode = Adw.ComboRow(title="Resolution",
-                            model=Gtk.StringList.new([t for _, t in mode_items]))
-        mode.set_selected([v for v, _ in mode_items].index(settings["mode"]))
-        mode.connect("notify::selected", lambda r, _p: self.save_display(
-            ident, name, mode=mode_items[r.get_selected()][0]))
-        row.add_row(mode)
-
-        if ident in remembered:
-            forget = Adw.ActionRow(title="Forget this display")
-            button = Gtk.Button(label="Forget", valign=Gtk.Align.CENTER)
-            button.add_css_class("destructive-action")
-            button.connect("clicked", lambda *_a: self.forget_display(ident))
-            forget.add_suffix(button)
-            row.add_row(forget)
-
-        self.display_group.add(row)
-        self.display_rows.append(row)
-
-    def save_display(self, ident, name, **changes):
-        try:
-            remembered = displays_mod.load()
-            entry = displays_mod.settings(ident, remembered)
-            entry["name"] = name
-            entry.update(changes)
-            new = ident not in remembered
-            remembered[ident] = entry
-            displays_mod.save(remembered)
-        except OSError as error:
-            self.toasts.add_toast(Adw.Toast.new(f"Saving failed: {error}"))
-            return
-        if new:
-            # Show the "Forget" button
-            GLib.idle_add(self._rebuild_now)
-
-    def forget_display(self, ident):
-        remembered = displays_mod.load()
-        remembered.pop(ident, None)
-        try:
-            displays_mod.save(remembered)
-        except OSError as error:
-            self.toasts.add_toast(Adw.Toast.new(f"Saving failed: {error}"))
-        GLib.idle_add(self._rebuild_now)
-
-    def _rebuild_now(self):
-        connected = displays_mod.external_displays()
-        self.connected_ids = [d["id"] for d in connected]
-        self.rebuild_displays(connected)
-        return False
-
-    # -- status --
-
-    def refresh(self):
-        if self.busy:
-            return True
-        connected = displays_mod.external_displays()
-        ids = [d["id"] for d in connected]
-        if ids != self.connected_ids:
-            self.connected_ids = ids
-            self.rebuild_displays(connected)
-        display = external_display()
-        if display:
-            name, resolution = display
-            self.status.set_title("Display connected")
-            description = name
-            if resolution:
-                description += f" · {resolution}"
-            description += (
-                "\n\nPhosh closes and Hyprland starts on the external display. "
-                "Unlock there with your PIN."
-            )
-            self.status.set_description(description)
-            self.button.set_sensitive(True)
-        else:
-            self.status.set_title("No display connected")
-            self.status.set_description(
-                "Connect a monitor over USB-C to switch to desktop mode."
-            )
-            self.button.set_sensitive(False)
-        return True
-
-    def option_changed(self, row, _pspec, key):
-        try:
-            write_conf(key, "1" if row.get_active() else "0")
-        except OSError as error:
-            self.toasts.add_toast(Adw.Toast.new(f"Saving failed: {error}"))
-
-    def switch(self, _button):
-        self.busy = True
-        self.button.set_sensitive(False)
-        self.button.set_label("Switching…")
-        self.spinner.set_visible(True)
-        self.spinner.start()
-        try:
-            proc = Gio.Subprocess.new(
-                ["systemctl", "start", "--no-block", DOCK_SERVICE],
-                Gio.SubprocessFlags.STDERR_PIPE,
-            )
-        except GLib.Error as error:
-            self.failed(error.message)
-            return
-        proc.communicate_utf8_async(None, None, self.started)
-
-    def started(self, proc, result):
-        try:
-            _, _, err = proc.communicate_utf8_finish(result)
-        except GLib.Error as error:
-            self.failed(error.message)
-            return
-        if not proc.get_successful():
-            self.failed((err or "").strip() or "unknown error")
-        # On success Phosh closes by itself; nothing left to do
-
-    def failed(self, message):
-        self.busy = False
-        self.spinner.stop()
-        self.spinner.set_visible(False)
-        self.button.set_label("Switch to desktop mode")
-        self.refresh()
-        self.toasts.add_toast(Adw.Toast.new(f"Switching failed: {message}"))
+    def recheck(self, _button):
+        self.nav.pop()
+        self.check_setup()
 
 
 class App(Adw.Application):

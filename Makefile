@@ -40,7 +40,7 @@ install:
 	for f in hypr/hyprland.conf hypr/hyprlock.conf hypr/hypridle.conf \
 	         waybar/config.jsonc waybar/style.css \
 	         swaync/config.json swaync/style.css \
-	         rofi/config.rasi rofi/theme.rasi swayosd/style.css; do \
+	         rofi/config.rasi rofi/theme.rasi; do \
 		install -Dm644 data/config/$$f $(DATADIR)/config/$$f; \
 	done
 	# System integration

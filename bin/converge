@@ -376,7 +376,6 @@ cmd_doctor() {
     need_cmd phosh-session phosh fail
     need_cmd kgx gnome-console warn "Super+Enter opens no terminal"
     need_cmd wpctl wireplumber warn "no audio switching"
-    need_cmd swayosd-server swayosd warn "no volume indicator"
     need_cmd playerctl playerctl warn "media keys do not control players"
     if python3 -c 'import gi; gi.require_version("Adw", "1"); from gi.repository import Adw' 2>/dev/null; then
         ok "python3 + libadwaita (Converge app)"
@@ -418,11 +417,20 @@ cmd_doctor() {
     else
         fail "converge-switch.service not enabled (sudo systemctl enable converge-switch.service)"
     fi
-    if [ -e /dev/uinput ]; then
-        if [ -w /dev/uinput ]; then ok "/dev/uinput writable (touchpad)"
-        else warn "/dev/uinput not writable for you (only works in the session on the device itself)"; fi
+    # The touchpad needs /dev/uinput and the touchscreen. udev gives the
+    # session on the phone itself access (uaccess), so test the rule, not
+    # your own access (which differs between SSH and the phone).
+    if [ ! -e /dev/uinput ]; then
+        if [ "$PHONE_TOUCHPAD" = 1 ]; then
+            fail "/dev/uinput missing, the touchpad cannot work (sudo modprobe uinput)"
+        else
+            warn "/dev/uinput missing; needed for the touchpad (sudo modprobe uinput)"
+        fi
+    elif udevadm info --query=property --name=/dev/uinput 2>/dev/null | grep -q '^CURRENT_TAGS=.*:uaccess:' ||
+         udevadm info --query=property --name=/dev/uinput 2>/dev/null | grep -q '^TAGS=.*:uaccess:'; then
+        ok "touchpad device access (/dev/uinput)"
     else
-        warn "/dev/uinput missing (sudo modprobe uinput)"
+        warn "/dev/uinput has no access rule; reload the udev rules (sudo udevadm trigger --sysname-match=uinput)"
     fi
 
     section "PAM"
@@ -461,7 +469,7 @@ cmd_doctor() {
         warn "~/.config/converge/converge.conf missing (defaults are used)"
     fi
     for f in hypr/hyprlock.conf hypr/hypridle.conf waybar/config.jsonc waybar/style.css \
-             swaync/config.json swaync/style.css rofi/config.rasi swayosd/style.css; do
+             swaync/config.json swaync/style.css rofi/config.rasi; do
         [ -e "$c/converge/$f" ] && ok "override in use: ~/.config/converge/$f"
     done
 
