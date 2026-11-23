@@ -6,7 +6,7 @@
 #                      or toggle when that is not set
 #   qs waybar vpn      JSON for the Waybar VPN module
 #
-# items: wifi, bluetooth, data, vpn
+# items: wifi, bluetooth, data, vpn, airplane, dark
 # The VPN is VPN_CONNECTION from ~/.config/converge/converge.conf, or the
 # first WireGuard/VPN connection in NetworkManager.
 
@@ -38,6 +38,11 @@ is_on() {
         vpn)
             v=$(vpn_connection)
             [ -n "$v" ] && nmcli -t -f NAME connection show --active 2>/dev/null | grep -qxF "$v" ;;
+        airplane)
+            [ "$(nmcli radio wifi 2>/dev/null)" = disabled ] &&
+                [ "$(nmcli radio wwan 2>/dev/null)" = disabled ] ;;
+        dark)
+            [ "$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null)" = "'prefer-dark'" ] ;;
         *)
             return 1 ;;
     esac
@@ -59,6 +64,18 @@ set_item() {
             v=$(vpn_connection)
             [ -n "$v" ] || exit 1
             if [ "$2" = on ]; then nmcli connection up "$v"; else nmcli connection down "$v"; fi ;;
+        airplane)
+            if [ "$2" = on ]; then
+                nmcli radio all off; rfkill block bluetooth
+            else
+                nmcli radio all on; rfkill unblock bluetooth
+            fi ;;
+        dark)
+            if [ "$2" = on ]; then
+                gsettings set org.gnome.desktop.interface color-scheme prefer-dark
+            else
+                gsettings set org.gnome.desktop.interface color-scheme default
+            fi ;;
     esac >/dev/null 2>&1
 }
 
@@ -80,6 +97,6 @@ case "$1" in
             printf '{"text":"","tooltip":"","class":"off"}\n'
         fi ;;
     *)
-        echo "usage: $0 status|set <wifi|bluetooth|data|vpn>  or  $0 waybar vpn" >&2
+        echo "usage: $0 status|set <wifi|bluetooth|data|vpn|airplane|dark>  or  $0 waybar vpn" >&2
         exit 2 ;;
 esac

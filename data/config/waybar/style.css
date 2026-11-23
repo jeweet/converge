@@ -35,8 +35,6 @@ tooltip label {
 
 /* All buttons in the bar: a pill that lights up on hover, like GNOME */
 #workspaces,
-#clock,
-#custom-notifications,
 #status {
   margin: 3px 2px;
   padding: 0 12px;
@@ -46,8 +44,6 @@ tooltip label {
 }
 
 #workspaces:hover,
-#clock:hover,
-#custom-notifications:hover,
 #status:hover {
   background: rgba(255, 255, 255, 0.15);
 }
@@ -90,17 +86,29 @@ tooltip label {
   background: #3584e4;
 }
 
-/* ---------- Center: clock ----------------------------------------- */
+/* ---------- Center: clock + notification dot ------------------------ */
+
+#datetime {
+  margin: 3px 2px;
+  padding: 0 12px;
+}
 
 #clock {
   font-size: 14px;
+  padding: 0;
 }
-
-/* ---------- Right: notifications + system menu ---------------------- */
 
 #custom-notifications {
-  padding: 0 10px;
+  padding: 0 0 0 6px;
+  font-size: 12px;
 }
+
+#custom-notifications.empty,
+#custom-notifications.none {
+  padding: 0;
+}
+
+/* ---------- Right: system menu --------------------------------------- */
 
 #status {
   margin-right: 6px;

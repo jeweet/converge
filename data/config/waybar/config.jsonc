@@ -9,8 +9,14 @@
   "spacing": 2,
 
   "modules-left": ["hyprland/workspaces"],
-  "modules-center": ["clock"],
-  "modules-right": ["custom/notifications", "group/status"],
+  "modules-center": ["group/datetime"],
+  "modules-right": ["group/status"],
+
+  // Clock with the notification dot next to it, like GNOME
+  "group/datetime": {
+    "orientation": "horizontal",
+    "modules": ["clock", "custom/notifications"]
+  },
 
   // All status icons in one pill, like the GNOME system menu
   "group/status": {
@@ -37,14 +43,8 @@
 
   "clock": {
     "format": "{:%H:%M}",
-    "tooltip-format": "<tt>{calendar}</tt>",
-    "calendar": {
-      "mode": "month",
-      "weeks-pos": "",
-      "format": {
-        "today": "<span color='#3584e4'><b>{}</b></span>"
-      }
-    }
+    "tooltip-format": "{:%A %-d %B %Y}",
+    "on-click": "swaync-client -t -sw"
   },
 
   "custom/vpn": {
@@ -84,8 +84,8 @@
 
   "bluetooth": {
     "format": "",
-    "format-on": "",
-    "format-connected": " {num_connections}",
+    "format-on": "",
+    "format-connected": "",
     "format-off": "",
     "format-disabled": "",
     "tooltip-format-connected": "{device_enumerate}",
@@ -101,35 +101,36 @@
     },
     "tooltip-format": "Volume {volume}%",
     "scroll-step": 5,
-    "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
-    "on-click-right": "swaync-client -t -sw"
+    "on-click": "swaync-client -t -sw",
+    "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
   },
 
   "battery": {
-    "format": "{icon} {capacity}%",
-    "format-charging": " {capacity}%",
-    "format-plugged": " {capacity}%",
+    "format": "{icon}",
+    "format-charging": "",
+    "format-plugged": "",
     "format-icons": ["", "", "", "", ""],
     "states": {
       "warning": 20,
       "critical": 10
     },
-    "tooltip-format": "{timeTo}",
+    "tooltip-format": "{capacity}% · {timeTo}",
     "on-click": "swaync-client -t -sw"
   },
 
   "custom/notifications": {
     "tooltip": false,
     "format": "{icon}",
+    // A dot when there are notifications, a bell-off icon in Do Not Disturb
     "format-icons": {
-      "notification": "<span foreground='#3584e4'><sup>●</sup></span>",
-      "none": "",
-      "dnd-notification": "<span foreground='#3584e4'><sup>●</sup></span>",
-      "dnd-none": "",
-      "inhibited-notification": "<span foreground='#3584e4'><sup>●</sup></span>",
-      "inhibited-none": "",
-      "dnd-inhibited-notification": "<span foreground='#3584e4'><sup>●</sup></span>",
-      "dnd-inhibited-none": ""
+      "notification": "<span size='small'>●</span>",
+      "none": "",
+      "dnd-notification": "\uf1f6",
+      "dnd-none": "\uf1f6",
+      "inhibited-notification": "<span size='small'>●</span>",
+      "inhibited-none": "",
+      "dnd-inhibited-notification": "\uf1f6",
+      "dnd-inhibited-none": "\uf1f6"
     },
     "return-type": "json",
     "exec-if": "which swaync-client",

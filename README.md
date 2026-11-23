@@ -16,10 +16,12 @@ see [Other devices](#other-devices).
 - **Locked on both sides.** Hyprland starts locked with hyprlock; after
   undocking Phosh starts on its lock screen. Your keyring is unlocked by
   either lock screen.
-- **A GNOME-like desktop.** Waybar styled like the GNOME top bar, swaync
-  notifications with quick settings (Wi-Fi, mobile data, Bluetooth, VPN), a
-  rofi app grid (Super+R), media keys, the Phosh wallpaper, dark mode,
-  Adwaita Sans.
+- **A GNOME-like desktop.** Waybar styled like the GNOME top bar; a
+  GNOME Shell-style quick settings menu (swaync) with screenshot, settings,
+  lock and power buttons, a volume slider, toggles for Wi-Fi, Bluetooth,
+  mobile data, VPN, dark style, airplane mode and Do Not Disturb, and your
+  notifications; a rofi app grid (Super+R); screenshots and media keys; the
+  Phosh wallpaper, dark mode, Adwaita Sans.
 - **Follows your GNOME settings.** Keyboard layouts (Settings > Keyboard)
   and the accent color (Settings > Appearance) carry over to Hyprland, the
   bar, notifications and the lock screen.
@@ -143,6 +145,7 @@ at boot, you log in to Phosh as usual and switch with the Converge app.
 | Volume/mute keys | Volume, mute, microphone mute |
 | Brightness keys | Brightness of the external display (ddcutil) |
 | Play/next/previous | Media players (playerctl) |
+| Print / Shift+Print / Alt+Print | Screenshot of an area / the screen / the window |
 | Super+Shift+E | Leave desktop mode |
 
 ### Commands
@@ -191,7 +194,8 @@ Open the Converge app with a display connected. Per display you can set:
 
 - **Switch without asking**: desktop mode starts as soon as this display is
   connected (Hyprland still starts locked).
-- **Scale**: automatic, 100% to 200%.
+- **Scale**: automatic, 75% to 200%. Below 100% you get more space, but
+  text is less sharp.
 - **Resolution**: preferred, highest, or one of the display's modes.
 
 Displays are recognized by their EDID, whatever dock or cable you use. The

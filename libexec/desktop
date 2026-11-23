@@ -11,6 +11,7 @@
 #   desktop launcher        toggle the app launcher (rofi)
 #   desktop volume up|down|mute|mic-mute    volume keys
 #   desktop brightness up|down              external display (ddcutil)
+#   desktop screenshot [area|window]        screenshot (grim, slurp)
 #   desktop touchpad on|off|toggle   phone screen as touchpad + keyboard
 #
 # Colors follow the GNOME accent color (converge_render).
@@ -124,6 +125,34 @@ brightness() {
     esac
 }
 
+# ---------- screenshots ---------------------------------------------------------
+
+# Like GNOME: saved to ~/Pictures/Screenshots and copied to the clipboard
+screenshot() {
+    command -v grim >/dev/null || { log "grim not installed: no screenshots"; return 1; }
+    dir="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/Screenshots"
+    mkdir -p "$dir"
+    file="$dir/Screenshot From $(date '+%Y-%m-%d %H-%M-%S').png"
+    case "$1" in
+        area)
+            command -v slurp >/dev/null || { log "slurp not installed"; return 1; }
+            geometry=$(slurp) || return 0
+            grim -g "$geometry" "$file" || return 1 ;;
+        window)
+            geometry=$(hyprctl -j activewindow 2>/dev/null | python3 -c '
+import json, sys
+w = json.load(sys.stdin)
+print("%d,%d %dx%d" % (w["at"][0], w["at"][1], w["size"][0], w["size"][1]))' 2>/dev/null)
+            [ -n "$geometry" ] || return 1
+            grim -g "$geometry" "$file" || return 1 ;;
+        *)
+            grim "$file" || return 1 ;;
+    esac
+    command -v wl-copy >/dev/null && wl-copy --type image/png <"$file"
+    notify-send -a Screenshot -i "$file" "Screenshot captured" \
+        "You can paste the image from the clipboard." 2>/dev/null
+}
+
 # ---------- touchpad -------------------------------------------------------------
 
 # The phone screen itself is configured before Hyprland starts (see
@@ -173,8 +202,9 @@ case "$1" in
     launcher)      launcher ;;
     volume)        volume "$2" ;;
     brightness)    brightness "$2" ;;
+    screenshot)    screenshot "$2" ;;
     touchpad)      touchpad "$2" ;;
     *)
-        echo "usage: $0 start|lock|idle|bar|notifications|launcher|volume ...|brightness ...|touchpad ..." >&2
+        echo "usage: $0 start|lock|idle|bar|notifications|launcher|volume ...|brightness ...|screenshot ...|touchpad ..." >&2
         exit 2 ;;
 esac

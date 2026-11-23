@@ -28,7 +28,10 @@ CONF = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "converge", "converge.conf")
 
-SCALES = [("auto", "Automatic"), ("1", "100%"), ("1.25", "125%"),
+# Below 100% everything gets smaller, but text is less sharp (apps draw at
+# 100% and Hyprland scales the result down)
+SCALES = [("auto", "Automatic"), ("0.75", "75% (less sharp)"),
+          ("0.9", "90% (less sharp)"), ("1", "100%"), ("1.25", "125%"),
           ("1.5", "150%"), ("1.75", "175%"), ("2", "200%")]
 
 # (key, title, subtitle, default)

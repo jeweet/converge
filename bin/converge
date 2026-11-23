@@ -377,6 +377,8 @@ cmd_doctor() {
     need_cmd kgx gnome-console warn "Super+Enter opens no terminal"
     need_cmd wpctl wireplumber warn "no audio switching"
     need_cmd playerctl playerctl warn "media keys do not control players"
+    need_cmd grim grim warn "no screenshots"
+    need_cmd slurp slurp warn "no area screenshots"
     if python3 -c 'import gi; gi.require_version("Adw", "1"); from gi.repository import Adw' 2>/dev/null; then
         ok "python3 + libadwaita (Converge app)"
     else

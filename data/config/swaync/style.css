@@ -7,7 +7,7 @@
  * Colors taken from libadwaita (dark theme).
  */
 
-@define-color ph-bg        #242424;   /* window background           */
+@define-color ph-bg        #2e2e32;   /* menu background (GNOME Shell) */
 @define-color ph-card      #363636;   /* card (notification)          */
 @define-color ph-card-hov  #3d3d3d;   /* card on hover                */
 @define-color ph-fg        #ffffff;   /* text                         */
@@ -138,15 +138,15 @@
   padding: 6px 12px;
 }
 
-/* ---------- Notification center ----------------------------------- */
+/* ---------- Quick settings + notifications (GNOME Shell 51 style) -- */
 
 .control-center {
-  background: alpha(@ph-bg, 0.97);
+  background: @ph-bg;
   color: @ph-fg;
   border: 1px solid @ph-border;
-  border-radius: 18px;
-  padding: 6px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+  border-radius: 26px;
+  padding: 14px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
 }
 
 .control-center-list {
@@ -154,41 +154,140 @@
 }
 
 .control-center .notification {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 16px;
   box-shadow: none;
-  margin: 6px 6px;
+  margin: 4px 0;
 }
 
-/* Same in the notification center (card margin 6px + 8px) */
+.control-center .notification:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Same in the notification center (card margin 4px 0 + 8px) */
 .control-center .close-button {
-  margin: 14px 14px 0 0;
+  margin: 12px 8px 0 0;
 }
 
 .blank-window {
   background: transparent;
 }
 
-/* Quick settings (like the Phosh quick settings) */
-.widget-buttons-grid {
-  margin: 6px 6px 2px 6px;
-  padding: 4px;
+/* Top row: screenshot, settings, lock, power (round buttons, right) */
+.widget-menubar {
+  margin: 0 0 10px 0;
 }
 
-.widget-buttons-grid button {
-  background: @ph-card;
+.widget-menubar > box > .menu-button-bar > button,
+.widget-menubar button {
+  background: rgba(255, 255, 255, 0.10);
   color: @ph-fg;
   border: none;
-  border-radius: 100px;
-  margin: 4px;
-  padding: 10px 14px;
-  min-height: 24px;
+  border-radius: 999px;
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0 0 0 8px;
+  padding: 0;
+  font-size: 16px;
   box-shadow: none;
 }
 
-.widget-buttons-grid button:hover {
-  background: @ph-card-hov;
+.widget-menubar button:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
 
-/* Toggle on = blue, like in Phosh */
+/* Power menu: a list below the buttons, like GNOME's submenu */
+.power {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 18px;
+  margin: 10px 0 0 0;
+  padding: 6px;
+}
+
+.power > button,
+.widget-menubar .power > button {
+  background: transparent;
+  border-radius: 12px;
+  min-height: 40px;
+  margin: 0;
+  padding: 0 14px;
+  font-size: 14px;
+}
+
+.power > button:hover,
+.widget-menubar .power > button:hover {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.power > button label {
+  margin: 0;
+}
+
+/* Volume slider: icon, slider */
+.widget-volume {
+  background: transparent;
+  margin: 0 0 10px 0;
+  padding: 4px 6px;
+}
+
+.widget-volume label {
+  font-size: 16px;
+  margin-right: 10px;
+  min-width: 24px;
+}
+
+.widget-volume trough {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  min-height: 6px;
+}
+
+.widget-volume highlight {
+  background: @ph-accent;
+  border-radius: 999px;
+}
+
+.widget-volume slider {
+  background: #ffffff;
+  border-radius: 999px;
+  min-width: 20px;
+  min-height: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* Quick toggles: two pills per row, accent when on */
+.widget-buttons-grid {
+  margin: 0 0 6px 0;
+  padding: 0;
+}
+
+.widget-buttons-grid > flowbox > flowboxchild,
+.widget-buttons-grid flowboxchild {
+  padding: 0;
+  margin: 0;
+}
+
+.widget-buttons-grid button {
+  background: rgba(255, 255, 255, 0.10);
+  color: @ph-fg;
+  border: none;
+  border-radius: 999px;
+  margin: 4px;
+  padding: 0 16px;
+  min-width: 168px;
+  min-height: 48px;
+  box-shadow: none;
+}
+
+.widget-buttons-grid button label {
+  font-weight: bold;
+}
+
+.widget-buttons-grid button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .widget-buttons-grid button.toggle:checked,
 .widget-buttons-grid button:checked {
   background: @ph-accent;
@@ -200,84 +299,14 @@
   background: shade(@ph-accent, 1.1);
 }
 
-/* Volume slider */
-.widget-volume {
-  background: @ph-card;
-  border-radius: 14px;
-  margin: 4px 10px 8px 10px;
-  padding: 8px 12px;
-}
-
-.widget-volume trough {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 100px;
-  min-height: 6px;
-}
-
-.widget-volume highlight {
-  background: @ph-accent;
-  border-radius: 100px;
-}
-
-.widget-volume slider {
-  background: #ffffff;
-  border-radius: 100px;
-  min-width: 16px;
-  min-height: 16px;
-}
-
-/* Title + "Clear all" */
-.widget-title {
-  margin: 10px 12px 4px 12px;
-  font-size: 18px;
-  font-weight: bold;
-  color: @ph-fg;
-}
-
-.widget-title > button {
-  font-size: 13px;
-  font-weight: normal;
-  background: rgba(255, 255, 255, 0.1);
-  color: @ph-fg;
-  border: none;
-  border-radius: 100px;
-  padding: 4px 14px;
-  box-shadow: none;
-}
-
-.widget-title > button:hover {
-  background: rgba(255, 255, 255, 0.18);
-}
-
-/* Do not disturb */
-.widget-dnd {
-  margin: 6px 12px 10px 12px;
-  font-size: 14px;
-  color: @ph-fg;
-}
-
-.widget-dnd > switch {
-  border-radius: 100px;
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.widget-dnd > switch:checked {
-  background: @ph-accent;
-}
-
-.widget-dnd > switch slider {
-  border-radius: 100px;
-  background: #ffffff;
-}
-
 /* Media player */
 .widget-mpris {
-  margin: 4px 6px 8px 6px;
+  margin: 6px 0;
 }
 
 .widget-mpris-player {
-  background: @ph-card;
-  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
   padding: 10px;
 }
 
@@ -289,6 +318,29 @@
 .widget-mpris-subtitle {
   font-size: 12px;
   color: @ph-fg-dim;
+}
+
+/* "Notifications" + "Clear" */
+.widget-title {
+  margin: 12px 4px 4px 4px;
+  font-size: 15px;
+  font-weight: bold;
+  color: @ph-fg;
+}
+
+.widget-title > button {
+  font-size: 13px;
+  font-weight: bold;
+  background: rgba(255, 255, 255, 0.10);
+  color: @ph-fg;
+  border: none;
+  border-radius: 999px;
+  padding: 4px 16px;
+  box-shadow: none;
+}
+
+.widget-title > button:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
 
 /* Empty list ("No notifications") */

@@ -2,7 +2,7 @@
 # Maintainer: jeweet <jeweet@users.noreply.github.com>
 pkgname=converge
 pkgver=0.2.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Phosh on the phone, Hyprland when docked: convergence for postmarketOS"
 url="https://github.com/jeweet/converge"
 arch="noarch"
@@ -11,6 +11,7 @@ depends="
 	adwaita-icon-theme
 	font-awesome
 	gnome-console
+	grim
 	greetd
 	gtk4.0
 	hypridle
@@ -23,9 +24,11 @@ depends="
 	py3-gobject3
 	python3
 	rofi
+	slurp
 	swaybg
 	swaync
 	waybar
+	wl-clipboard
 	xdg-desktop-portal-gtk
 	xdg-desktop-portal-hyprland
 	"
