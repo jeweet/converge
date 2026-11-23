@@ -12,7 +12,8 @@
   lock, power menu), volume slider, two-column toggles including dark style,
   airplane mode and Do Not Disturb; notification dot next to the clock, no
   hover pill and a plain date tooltip on the clock; battery percentage in
-  the tooltip
+  the tooltip; the quick settings menu no longer takes the full screen
+  height
 - Screenshots: Print (area), Shift+Print (screen), Alt+Print (window), saved
   to ~/Pictures/Screenshots and copied to the clipboard
 - Display scales below 100% (75%, 90%)

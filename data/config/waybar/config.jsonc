@@ -43,8 +43,7 @@
 
   "clock": {
     "format": "{:%H:%M}",
-    "tooltip-format": "{:%A %-d %B %Y}",
-    "on-click": "swaync-client -t -sw"
+    "tooltip-format": "{:%A %d %B %Y}"
   },
 
   "custom/vpn": {
