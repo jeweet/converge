@@ -70,7 +70,8 @@ abuild-keygen -a -i -n              # once: your signing key
 git clone https://github.com/jeweet/converge
 cd converge
 make apk
-sudo apk add ~/packages/*/*/converge-*.apk
+sudo apk add ~/.local/share/abuild/packaging/*/converge-*.apk
+# (older abuild versions put it in ~/packages/packaging/<arch>/ instead)
 converge setup
 ```
 
