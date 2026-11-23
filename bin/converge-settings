@@ -193,7 +193,7 @@ class Window(Adw.ApplicationWindow):
         self.check_row = Adw.ActionRow(title="Checking…", use_markup=False)
         self.check_row.set_activatable(True)
         self.check_row.connect("activated", lambda *_a: self.show_check())
-        self.check_icon = Gtk.Image(icon_name="content-loading-symbolic")
+        self.check_icon = Gtk.Image(icon_name="view-refresh-symbolic")
         self.check_row.add_prefix(self.check_icon)
         self.check_row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         check.add(self.check_row)
@@ -446,7 +446,7 @@ class Window(Adw.ApplicationWindow):
         else:
             self.check_row.set_title("Everything is set up")
             self.check_row.set_subtitle(f"{oks} checks passed")
-            self.check_icon.set_from_icon_name("emblem-ok-symbolic")
+            self.check_icon.set_from_icon_name("object-select-symbolic")
             self.check_icon.add_css_class("success")
         self.banner.set_revealed(fails > 0)
 
@@ -464,7 +464,7 @@ class Window(Adw.ApplicationWindow):
                                 use_markup=False, title_lines=0)
             icon, css = {"fail": ("dialog-error-symbolic", "error"),
                          "warn": ("dialog-warning-symbolic", "warning")}.get(
-                state, ("emblem-ok-symbolic", "success"))
+                state, ("object-select-symbolic", "success"))
             image = Gtk.Image(icon_name=icon)
             image.add_css_class(css)
             row.add_prefix(image)

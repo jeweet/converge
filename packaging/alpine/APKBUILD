@@ -2,7 +2,7 @@
 # Maintainer: jeweet <jeweet@users.noreply.github.com>
 pkgname=converge
 pkgver=0.2.0
-pkgrel=5
+pkgrel=6
 pkgdesc="Phosh on the phone, Hyprland when docked: convergence for postmarketOS"
 url="https://github.com/jeweet/converge"
 arch="noarch"
