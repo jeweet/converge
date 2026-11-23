@@ -29,9 +29,13 @@ jobs:
       - name: Build package
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          # Throwaway signing key (-i: trust it here, abuild checks the index
-          # signature). Users install the result with --allow-untrusted.
-          abuild-keygen -a -i -n
+          # Throwaway signing key, trusted here because abuild checks the
+          # index signature (we are root, so no doas/sudo for -i).
+          # Users install the result with --allow-untrusted.
+          abuild-keygen -a -n
+          find "$HOME/.config/abuild" "$HOME/.abuild" -name '*.rsa.pub' \
+            -exec cp {} /etc/apk/keys/ \; 2>/dev/null || true
+          ls /etc/apk/keys/
           make dist
           cd packaging/alpine
           abuild -F checksum
