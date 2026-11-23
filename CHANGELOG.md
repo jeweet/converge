@@ -17,6 +17,7 @@
 - Screenshots: Print (area), Shift+Print (screen), Alt+Print (window), saved
   to ~/Pictures/Screenshots and copied to the clipboard
 - Display scales below 100% (75%, 90%)
+- Resize windows by dragging their edges with the mouse
 - Phosh drops the Hyprland environment left in the systemd user manager, and
   the app detects desktop mode from the switch state (it showed "Back to
   phone" in Phosh)
