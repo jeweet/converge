@@ -17,6 +17,12 @@
 - Screenshots: Print (area), Shift+Print (screen), Alt+Print (window), saved
   to ~/Pictures/Screenshots and copied to the clipboard
 - Display scales below 100% (75%, 90%)
+- Phosh drops the Hyprland environment left in the systemd user manager, and
+  the app detects desktop mode from the switch state (it showed "Back to
+  phone" in Phosh)
+- Wait for the EDID after hotplug before checking for a trusted display;
+  the switch logs why it asks or not, and `converge status` shows the
+  display profile
 - Volume and microphone keys (wpctl), brightness keys for the external
   display (ddcutil), media keys (playerctl)
 - Converge app: new phone-friendly layout with a page per display and for

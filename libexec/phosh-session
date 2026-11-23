@@ -20,6 +20,12 @@ log "starting phosh-session (session ${XDG_SESSION_ID:-?})"
 # refuses to start ("A graphical session is already running")
 systemctl --user stop converge-hyprland-session.target 2>/dev/null
 
+# Desktop mode exported its environment to systemd and D-Bus; without this,
+# apps started from Phosh would still think they run under Hyprland
+unset HYPRLAND_INSTANCE_SIGNATURE HYPRLAND_CMD
+systemctl --user unset-environment HYPRLAND_INSTANCE_SIGNATURE HYPRLAND_CMD 2>/dev/null
+dbus-update-activation-environment HYPRLAND_INSTANCE_SIGNATURE= 2>/dev/null
+
 ss_call() {
     gdbus call --session --dest org.gnome.ScreenSaver \
         --object-path /org/gnome/ScreenSaver \

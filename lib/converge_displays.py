@@ -56,8 +56,22 @@ def _edid_name(edid):
     return "Unknown display"
 
 
-def external_displays():
-    """Connected external displays: list of dicts."""
+def external_displays(wait=0.0):
+    """Connected external displays: list of dicts.
+
+    wait: seconds to keep retrying while a connected display has no EDID
+    yet (right after plugging in, docks can report "connected" first)."""
+    import time
+    deadline = time.monotonic() + wait
+    while True:
+        result = _external_displays()
+        if not any(d["id"].startswith("noedid-") for d in result) \
+                or time.monotonic() >= deadline:
+            return result
+        time.sleep(0.5)
+
+
+def _external_displays():
     result = []
     for status in sorted(glob.glob("/sys/class/drm/card*-*/status")):
         d = os.path.dirname(status)
@@ -133,7 +147,7 @@ def settings(ident, displays):
 def main(argv):
     if len(argv) >= 2 and argv[1] == "current":
         path = argv[2] if len(argv) > 2 else None
-        ext = external_displays()
+        ext = external_displays(wait=5.0)
         if not ext:
             return 0
         e = ext[0]

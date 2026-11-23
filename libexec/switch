@@ -215,9 +215,12 @@ display_trusted() {
     home=$(getent passwd "$(user)" 2>/dev/null | cut -d: -f6)
     [ -n "$home" ] || return 1
     line=$(converge_current_display "$home/.config/converge/displays.conf")
-    [ "$(printf '%s' "$line" | cut -f3)" = 1 ] || return 1
-    log "trusted display: $(printf '%s' "$line" | cut -f6)"
-    return 0
+    if [ "$(printf '%s' "$line" | cut -f3)" = 1 ]; then
+        log "trusted display: $(printf '%s' "$line" | cut -f6) ($(printf '%s' "$line" | cut -f2)), not asking"
+        return 0
+    fi
+    log "display $(printf '%s' "$line" | cut -f6) ($(printf '%s' "$line" | cut -f2)) is not trusted: asking"
+    return 1
 }
 
 # Short notification in the user's session (does not wait)
@@ -365,6 +368,13 @@ status() {
         fi
     done
     [ -n "$found" ] || echo none
+    if [ -n "$found" ]; then
+        home=$(getent passwd "$u" 2>/dev/null | cut -d: -f6)
+        line=$(converge_current_display "$home/.config/converge/displays.conf")
+        if [ -n "$line" ]; then
+            echo "Display profile:    $(printf '%s' "$line" | cut -f6) (id $(printf '%s' "$line" | cut -f2)): trusted=$(printf '%s' "$line" | cut -f3) scale=$(printf '%s' "$line" | cut -f4) mode=$(printf '%s' "$line" | cut -f5)"
+        fi
+    fi
     echo "User:               ${u:-(none found)}"
     echo "Do not ask again:   $(yes_no test -f "$DECLINED")  (until unplugged)"
     echo "Switch in progress: $(yes_no test -f "$SWITCHING")"

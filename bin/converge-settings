@@ -46,9 +46,26 @@ OPTIONS = [
 ]
 
 
+DROPIN = "/run/systemd/system/greetd.service.d/zz-converge.conf"
+
+
 def in_desktop_mode():
-    return bool(os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")) or \
-        os.environ.get("XDG_CURRENT_DESKTOP", "") == "Hyprland"
+    """True when this app runs in the Converge Hyprland session.
+
+    Environment variables are not enough: Hyprland exports its own to the
+    user's systemd manager, and those can linger in the Phosh session."""
+    if "phosh" in os.environ.get("XDG_CURRENT_DESKTOP", "").lower():
+        return False
+    try:
+        with open(DROPIN) as f:
+            if "greetd-docked.toml" not in f.read():
+                return False
+    except OSError:
+        return False
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+    runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    return bool(sig) and os.path.exists(
+        os.path.join(runtime, "hypr", sig, ".socket.sock"))
 
 
 def read_conf():
