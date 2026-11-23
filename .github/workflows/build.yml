@@ -14,7 +14,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Syntax checks and shellcheck
         run: make check
 
@@ -25,21 +25,22 @@ jobs:
     steps:
       - name: Install build tools
         run: apk add --no-cache alpine-sdk git
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build package
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          # Throwaway signing key: install the result with --allow-untrusted
-          abuild-keygen -a -n
+          # Throwaway signing key (-i: trust it here, abuild checks the index
+          # signature). Users install the result with --allow-untrusted.
+          abuild-keygen -a -i -n
           make dist
           cd packaging/alpine
           abuild -F checksum
           # -d: runtime dependencies are not needed to build a noarch package
-          abuild -F -d -r
+          REPODEST="$GITHUB_WORKSPACE/repo" abuild -F -d -r
       - name: Collect package
         run: |
           mkdir -p dist
-          find ~/packages -name 'converge-*.apk' -exec cp {} dist/ \;
+          find "$GITHUB_WORKSPACE/repo" -name 'converge-*.apk' -exec cp {} dist/ \;
           ls -l dist
       - uses: actions/upload-artifact@v4
         with:
