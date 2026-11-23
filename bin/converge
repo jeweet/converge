@@ -68,7 +68,6 @@ LEGACY_SYSTEM_FILES="
 /etc/systemd/system/converge-switch.service
 /etc/systemd/system/converge-dock.service
 /etc/systemd/system/converge-actie@.service
-/etc/systemd/system/graphical.target.wants/converge-switch.service
 /etc/udev/rules.d/99-converge.rules
 /etc/udev/rules.d/70-converge-uinput.rules
 /etc/udev/rules.d/71-converge-touchscreen.rules
@@ -217,6 +216,11 @@ setup_system() {
     [ -n "$found" ] || say "  nothing found"
 
     heading "Services and devices"
+    # The old unit was enabled from /etc; that link now points nowhere
+    wants=/etc/systemd/system/graphical.target.wants/converge-switch.service
+    if [ -L "$wants" ] && [ ! -e "$wants" ]; then
+        rm -f "$wants"
+    fi
     systemctl daemon-reload
     systemctl enable converge-switch.service 2>&1 | sed 's/^/  /'
     say "  converge-switch.service: $(systemctl is-enabled converge-switch.service 2>/dev/null)"
@@ -385,10 +389,14 @@ cmd_doctor() {
     else
         fail "no user found; run converge setup"
     fi
-    if [ -r /etc/greetd/config.toml ] && grep -q '^\[default_session\]' /etc/greetd/config.toml; then
+    if [ ! -e /etc/greetd/config.toml ]; then
+        fail "/etc/greetd/config.toml missing"
+    elif [ ! -r /etc/greetd/config.toml ]; then
+        ok "greetd config exists (not readable for you; converge-switch reads it as root)"
+    elif grep -q '^[[:space:]]*\[default_session\]' /etc/greetd/config.toml; then
         ok "greetd config has a default_session (greeter)"
     else
-        fail "/etc/greetd/config.toml missing or without [default_session]"
+        fail "/etc/greetd/config.toml has no [default_session]"
     fi
     if [ "$(systemctl is-enabled converge-switch.service 2>/dev/null)" = enabled ]; then
         ok "converge-switch.service enabled"
