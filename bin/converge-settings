@@ -15,12 +15,18 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
+sys.path.insert(0, "/usr/lib/converge")
+import converge_displays as displays_mod  # noqa: E402
+
 APP_ID = "io.github.jeweet.Converge"
 DOCK_SERVICE = "converge-dock.service"
 
 CONF = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "converge", "converge.conf")
+
+SCALES = [("auto", "Automatic"), ("1", "100%"), ("1.25", "125%"),
+          ("1.5", "150%"), ("1.75", "175%"), ("2", "200%")]
 
 # (key, title, subtitle, default)
 OPTIONS = [
@@ -104,7 +110,10 @@ class Window(Adw.ApplicationWindow):
 
         # Shown when "converge doctor" finds problems
         self.banner = Adw.Banner(
-            title="Setup is incomplete. Run “converge doctor” in a terminal.")
+            title="Converge is not set up completely",
+            button_label="Details")
+        self.banner.connect("button-clicked",
+                            lambda *_a: self.check_row.set_expanded(True))
         toolbar.add_top_bar(self.banner)
 
         self.status = Adw.StatusPage()
@@ -134,11 +143,33 @@ class Window(Adw.ApplicationWindow):
             row.set_active(values.get(key, "1" if default else "0") == "1")
             row.connect("notify::active", self.option_changed, key)
             group.add(row)
+        # Displays: trusted displays and display profiles
+        self.display_group = Adw.PreferencesGroup(
+            title="Displays",
+            description="Remembered per display. Scale and resolution apply "
+                        "the next time you switch.")
+        self.display_rows = []
+        self.connected_ids = None
+
+        # Installation check (converge doctor)
+        self.check_group = Adw.PreferencesGroup(title="Installation")
+        rerun = Gtk.Button(icon_name="view-refresh-symbolic",
+                           tooltip_text="Check again")
+        rerun.add_css_class("flat")
+        rerun.connect("clicked", lambda *_a: self.check_setup())
+        self.check_group.set_header_suffix(rerun)
+        self.check_row = Adw.ExpanderRow(title="Checking…")
+        self.check_group.add(self.check_row)
+        self.check_children = []
+
+        pages = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        for g in (group, self.display_group, self.check_group):
+            pages.append(g)
         clamp = Adw.Clamp(maximum_size=520)
         clamp.set_margin_start(12)
         clamp.set_margin_end(12)
         clamp.set_margin_bottom(24)
-        clamp.set_child(group)
+        clamp.set_child(pages)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         content.append(self.status)
@@ -154,25 +185,182 @@ class Window(Adw.ApplicationWindow):
         GLib.timeout_add_seconds(1, self.refresh)
         self.check_setup()
 
+    # -- installation check --
+
     def check_setup(self):
+        self.check_row.set_title("Checking…")
+        self.check_row.set_subtitle("")
         try:
             proc = Gio.Subprocess.new(
-                ["converge", "doctor", "--quiet"],
-                Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE)
-        except GLib.Error:
+                ["converge", "doctor", "--plain"],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+        except GLib.Error as error:
+            self.check_row.set_title("Could not run converge doctor")
+            self.check_row.set_subtitle(error.message)
             return
-        proc.wait_async(None, self._setup_checked)
+        proc.communicate_utf8_async(None, None, self._setup_checked)
 
     def _setup_checked(self, proc, result):
         try:
-            proc.wait_finish(result)
+            _, out, _ = proc.communicate_utf8_finish(result)
         except GLib.Error:
             return
-        self.banner.set_revealed(not proc.get_successful())
+        for row in self.check_children:
+            self.check_row.remove(row)
+        self.check_children = []
+        fails = warns = oks = 0
+        for line in (out or "").splitlines():
+            parts = line.split("\t", 2)
+            if len(parts) != 3:
+                continue
+            state, section, message = parts
+            if state == "ok":
+                oks += 1
+                continue
+            if state == "fail":
+                fails += 1
+                icon = "dialog-error-symbolic"
+            else:
+                warns += 1
+                icon = "dialog-warning-symbolic"
+            row = Adw.ActionRow(title=message, subtitle=section,
+                                use_markup=False, title_lines=0)
+            image = Gtk.Image(icon_name=icon)
+            if state == "fail":
+                image.add_css_class("error")
+            else:
+                image.add_css_class("warning")
+            row.add_prefix(image)
+            self.check_row.add_row(row)
+            self.check_children.append(row)
+        if fails:
+            self.check_row.set_title(f"{fails} problem(s), {warns} warning(s)")
+            self.check_row.set_subtitle("Run “converge setup” in a terminal to fix most of them")
+        elif warns:
+            self.check_row.set_title(f"No problems, {warns} warning(s)")
+            self.check_row.set_subtitle(f"{oks} checks passed")
+        else:
+            self.check_row.set_title("Everything is set up")
+            self.check_row.set_subtitle(f"{oks} checks passed")
+        self.check_row.set_enable_expansion(bool(self.check_children))
+        self.banner.set_revealed(fails > 0)
+
+    # -- displays --
+
+    def rebuild_displays(self, connected):
+        for row in self.display_rows:
+            self.display_group.remove(row)
+        self.display_rows = []
+        remembered = displays_mod.load()
+        shown = set()
+        for d in connected:
+            self._add_display_row(d["id"], d["name"], d["connector"],
+                                  d["modes"], remembered)
+            shown.add(d["id"])
+        for ident, d in remembered.items():
+            if ident not in shown:
+                self._add_display_row(ident, d.get("name") or ident, None,
+                                      [], remembered)
+        if not self.display_rows:
+            row = Adw.ActionRow(
+                title="No displays yet",
+                subtitle="Connect a display to set it up here")
+            self.display_group.add(row)
+            self.display_rows.append(row)
+
+    def _add_display_row(self, ident, name, connector, modes, remembered):
+        settings = displays_mod.settings(ident, remembered)
+        row = Adw.ExpanderRow(title=name, use_markup=False)
+        row.set_subtitle(f"Connected · {connector}" if connector else "Not connected")
+        row.add_prefix(Gtk.Image(icon_name="video-display-symbolic"))
+        if connector:
+            row.set_expanded(True)
+
+        trusted = Adw.SwitchRow(
+            title="Switch without asking",
+            subtitle="Go to desktop mode as soon as this display is "
+                     "connected. Hyprland still starts locked.")
+        trusted.set_active(settings["trusted"] == "1")
+        trusted.connect("notify::active", lambda r, _p: self.save_display(
+            ident, name, trusted="1" if r.get_active() else "0"))
+        row.add_row(trusted)
+
+        scale_values = [v for v, _ in SCALES]
+        if settings["scale"] not in scale_values:
+            SCALES_EXTRA = (settings["scale"], f"{settings['scale']} (custom)")
+            scale_items = SCALES + [SCALES_EXTRA]
+        else:
+            scale_items = SCALES
+        scale = Adw.ComboRow(title="Scale",
+                             model=Gtk.StringList.new([t for _, t in scale_items]))
+        scale.set_selected([v for v, _ in scale_items].index(settings["scale"]))
+        scale.connect("notify::selected", lambda r, _p: self.save_display(
+            ident, name, scale=scale_items[r.get_selected()][0]))
+        row.add_row(scale)
+
+        mode_items = [("preferred", "Preferred"), ("highres", "Highest")]
+        mode_items += [(m, m) for m in modes]
+        if settings["mode"] not in [v for v, _ in mode_items]:
+            mode_items.append((settings["mode"], settings["mode"]))
+        mode = Adw.ComboRow(title="Resolution",
+                            model=Gtk.StringList.new([t for _, t in mode_items]))
+        mode.set_selected([v for v, _ in mode_items].index(settings["mode"]))
+        mode.connect("notify::selected", lambda r, _p: self.save_display(
+            ident, name, mode=mode_items[r.get_selected()][0]))
+        row.add_row(mode)
+
+        if ident in remembered:
+            forget = Adw.ActionRow(title="Forget this display")
+            button = Gtk.Button(label="Forget", valign=Gtk.Align.CENTER)
+            button.add_css_class("destructive-action")
+            button.connect("clicked", lambda *_a: self.forget_display(ident))
+            forget.add_suffix(button)
+            row.add_row(forget)
+
+        self.display_group.add(row)
+        self.display_rows.append(row)
+
+    def save_display(self, ident, name, **changes):
+        try:
+            remembered = displays_mod.load()
+            entry = displays_mod.settings(ident, remembered)
+            entry["name"] = name
+            entry.update(changes)
+            new = ident not in remembered
+            remembered[ident] = entry
+            displays_mod.save(remembered)
+        except OSError as error:
+            self.toasts.add_toast(Adw.Toast.new(f"Saving failed: {error}"))
+            return
+        if new:
+            # Show the "Forget" button
+            GLib.idle_add(self._rebuild_now)
+
+    def forget_display(self, ident):
+        remembered = displays_mod.load()
+        remembered.pop(ident, None)
+        try:
+            displays_mod.save(remembered)
+        except OSError as error:
+            self.toasts.add_toast(Adw.Toast.new(f"Saving failed: {error}"))
+        GLib.idle_add(self._rebuild_now)
+
+    def _rebuild_now(self):
+        connected = displays_mod.external_displays()
+        self.connected_ids = [d["id"] for d in connected]
+        self.rebuild_displays(connected)
+        return False
+
+    # -- status --
 
     def refresh(self):
         if self.busy:
             return True
+        connected = displays_mod.external_displays()
+        ids = [d["id"] for d in connected]
+        if ids != self.connected_ids:
+            self.connected_ids = ids
+            self.rebuild_displays(connected)
         display = external_display()
         if display:
             name, resolution = display

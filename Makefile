@@ -1,4 +1,4 @@
-VERSION   := 0.1.0
+VERSION   := 0.2.0
 DESTDIR   ?=
 # The scripts refer to these paths directly; changing them is not supported.
 PREFIX    := /usr
@@ -30,6 +30,7 @@ install:
 	install -Dm755 bin/converge-settings $(BINDIR)/converge-settings
 	for f in $(LIBEXEC_SCRIPTS); do install -Dm755 libexec/$$f $(LIBEXECDIR)/$$f; done
 	install -Dm644 lib/common.sh $(LIBDIR)/common.sh
+	install -Dm644 lib/converge_displays.py $(LIBDIR)/converge_displays.py
 	sed -i 's/@VERSION@/$(VERSION)/' $(LIBDIR)/common.sh
 	# Data and packaged default configs
 	install -Dm644 data/system.conf $(DATADIR)/system.conf
@@ -39,7 +40,7 @@ install:
 	for f in hypr/hyprland.conf hypr/hyprlock.conf hypr/hypridle.conf \
 	         waybar/config.jsonc waybar/style.css \
 	         swaync/config.json swaync/style.css \
-	         rofi/config.rasi rofi/theme.rasi; do \
+	         rofi/config.rasi rofi/theme.rasi swayosd/style.css; do \
 		install -Dm644 data/config/$$f $(DATADIR)/config/$$f; \
 	done
 	# System integration
@@ -73,7 +74,7 @@ check:
 	for f in bin/converge lib/common.sh libexec/switch libexec/hyprland-session \
 	         libexec/phosh-session libexec/desktop libexec/titlebar libexec/battery \
 	         libexec/wallpaper libexec/waybar-modem libexec/qs; do sh -n $$f || exit 1; done
-	for f in bin/converge-settings libexec/rofi-icons libexec/touchpad; do \
+	for f in bin/converge-settings libexec/rofi-icons libexec/touchpad lib/converge_displays.py; do \
 		python3 -c "import ast, sys; ast.parse(open(sys.argv[1]).read())" $$f || exit 1; done
 	python3 -c "import json; json.load(open('data/config/swaync/config.json'))"
 	if command -v shellcheck >/dev/null; then \

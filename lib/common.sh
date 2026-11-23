@@ -119,6 +119,52 @@ converge_greetd_config() {
     echo "${_cfg:-/etc/greetd/config.toml}"
 }
 
+# ---------- GNOME accent color --------------------------------------------------
+
+# Default accent used in the packaged configs; replaced by the GNOME accent
+CONVERGE_DEFAULT_ACCENT=3584e4
+
+# GNOME accent color as hex without '#' (libadwaita palette)
+converge_accent_hex() {
+    case "$(gsettings get org.gnome.desktop.interface accent-color 2>/dev/null | tr -d "'")" in
+        teal)   echo 2190a4 ;;
+        green)  echo 3a944a ;;
+        yellow) echo c88800 ;;
+        orange) echo ed5b00 ;;
+        red)    echo e62d42 ;;
+        pink)   echo d56199 ;;
+        purple) echo 9141ac ;;
+        slate)  echo 6f8396 ;;
+        *)      echo "$CONVERGE_DEFAULT_ACCENT" ;;
+    esac
+}
+
+# Mix a hex color with white: $1 = hex, $2 = percent white
+converge_lighten() {
+    _r=$((0x$(echo "$1" | cut -c1-2))); _g=$((0x$(echo "$1" | cut -c3-4))); _b=$((0x$(echo "$1" | cut -c5-6)))
+    printf '%02x%02x%02x\n' $((_r + (255 - _r) * $2 / 100)) \
+        $((_g + (255 - _g) * $2 / 100)) $((_b + (255 - _b) * $2 / 100))
+}
+
+# Config file with the GNOME accent filled in: takes converge_config <rel>,
+# writes it to $XDG_RUNTIME_DIR/converge/<rel> and prints that path
+converge_render() {
+    _src=$(converge_config "$1")
+    _dst="${XDG_RUNTIME_DIR:-/tmp}/converge/$1"
+    mkdir -p "$(dirname "$_dst")"
+    sed "s/$CONVERGE_DEFAULT_ACCENT/$(converge_accent_hex)/g" "$_src" >"$_dst" 2>/dev/null || cp "$_src" "$_dst"
+    echo "$_dst"
+}
+
+# ---------- displays -------------------------------------------------------------
+
+# First connected external display with its remembered settings:
+# "connector id trusted scale mode name" (tab-separated), or nothing.
+# $1 = displays.conf (default: the current user's)
+converge_current_display() {
+    python3 /usr/lib/converge/converge_displays.py current ${1:+"$1"} 2>/dev/null
+}
+
 converge_log() {
     # $1 = tag, rest = message
     _t=$1

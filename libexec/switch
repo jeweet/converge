@@ -210,6 +210,16 @@ ask() {
     [ "$answer" = dock ]
 }
 
+# The connected display is trusted in the Converge app: no question
+display_trusted() {
+    home=$(getent passwd "$(user)" 2>/dev/null | cut -d: -f6)
+    [ -n "$home" ] || return 1
+    line=$(converge_current_display "$home/.config/converge/displays.conf")
+    [ "$(printf '%s' "$line" | cut -f3)" = 1 ] || return 1
+    log "trusted display: $(printf '%s' "$line" | cut -f6)"
+    return 0
+}
+
 # Short notification in the user's session (does not wait)
 notify() {
     u=$(user)
@@ -265,8 +275,13 @@ auto() {
             is_docked && return 0
             # Already said "no" since plugging in: do not ask again
             [ -f "$DECLINED" ] && return 0
-            ask
-            case $? in
+            if display_trusted; then
+                result=0
+            else
+                ask
+                result=$?
+            fi
+            case $result in
                 0)
                     converge_external_connected || { log "display gone again"; return 0; }
                     dock ;;

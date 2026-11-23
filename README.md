@@ -18,7 +18,13 @@ see [Other devices](#other-devices).
   either lock screen.
 - **A GNOME-like desktop.** Waybar styled like the GNOME top bar, swaync
   notifications with quick settings (Wi-Fi, mobile data, Bluetooth, VPN), a
-  rofi app grid (Super+R), the Phosh wallpaper, dark mode, Adwaita Sans.
+  rofi app grid (Super+R), GNOME-style volume indicator for media keys, the
+  Phosh wallpaper, dark mode, Adwaita Sans.
+- **Follows your GNOME settings.** Keyboard layouts (Settings > Keyboard)
+  and the accent color (Settings > Appearance) carry over to Hyprland, the
+  bar, notifications and the lock screen.
+- **Remembers your displays.** Per display: switch without asking (trusted
+  displays), scale and resolution. Set it up in the Converge app.
 - **Your phone apps keep working.** Calls, Chatty and other XDG autostart
   services start in desktop mode too.
 - **Desktop-mode tweaks.** CPU performance governor, audio to the display,
@@ -27,7 +33,8 @@ see [Other devices](#other-devices).
 - **Phone screen as touchpad + keyboard** (optional, Super+T).
 - **Safety net.** If Hyprland crashes right after starting, you go back to
   Phosh with a notification.
-- **The Converge app** to switch manually and change the settings.
+- **The Converge app** to switch manually, change the settings, set up your
+  displays and see the result of the installation check.
 - **`converge doctor`** checks the whole setup, for example after system
   updates.
 
@@ -108,6 +115,9 @@ and are loaded by your files, not copied into them.
    display. Unlock with your PIN.
 3. Unplug, or press **Super+Shift+E**, to go back to Phosh (locked).
 
+On a trusted display (see [Displays](#displays)) there is no question:
+the phone switches right away, and Hyprland still starts locked.
+
 If you answer *Stay on phone* or let the question time out, you stay in
 Phosh; switch later with the Converge app. When the phone is already docked
 at boot, you log in to Phosh as usual and switch with the Converge app.
@@ -129,6 +139,10 @@ at boot, you log in to Phosh as usual and switch with the Converge app.
 | Super+arrows | Move focus |
 | Super+Shift+arrows | Move window |
 | Super+drag | Move window (left button) / resize (right button) |
+| Super+Space | Next keyboard layout (with several GNOME layouts) |
+| Volume/mute keys | Volume with an on-screen indicator |
+| Brightness keys | Brightness of the external display (ddcutil) |
+| Play/next/previous | Media players (playerctl) |
 | Super+Shift+E | Leave desktop mode |
 
 ### Commands
@@ -171,6 +185,37 @@ time you dock.
 | `CRASH_SECONDS` | `20` | Hyprland exiting sooner than this counts as a crash |
 | `HYPRLAND_NO_ATOMIC` | `1` | Legacy KMS in Hyprland (needed on the Fairphone 5) |
 
+### Displays
+
+Open the Converge app with a display connected. Per display you can set:
+
+- **Switch without asking**: desktop mode starts as soon as this display is
+  connected (Hyprland still starts locked).
+- **Scale**: automatic, 100% to 200%.
+- **Resolution**: preferred, highest, or one of the display's modes.
+
+Displays are recognized by their EDID, whatever dock or cable you use. The
+settings are stored in `~/.config/converge/displays.conf` and apply the next
+time you dock.
+
+### Keyboard and accent color
+
+Converge reads your keyboard layouts and XKB options from GNOME
+(`org.gnome.desktop.input-sources`) and the accent color
+(`org.gnome.desktop.interface accent-color`) every time you dock. Change
+them in GNOME Settings on the phone. With several layouts, Super+Space
+switches between them, like in GNOME. Your own `input { ... }` lines in
+`~/.config/hypr/hyprland.conf` still win.
+
+### Optional extras
+
+- `swayosd`: the GNOME-style volume indicator (volume keys work without it)
+- `playerctl`: play/pause/next keys
+- `ddcutil`: brightness keys for the external display, if the monitor and
+  the dock support DDC/CI
+
+`converge doctor` tells you which of these are missing.
+
 ### Hyprland
 
 `~/.config/hypr/hyprland.conf` loads the packaged config. Add your own
@@ -179,11 +224,9 @@ settings below the `source` line; they override the defaults:
 ```
 source = /usr/share/converge/config/hypr/hyprland.conf
 
-input {
-    kb_layout = us
-    kb_variant = altgr-intl
+decoration {
+    rounding = 12
 }
-monitor = DP-1, preferred, auto, 1.25
 bind = SUPER, B, exec, firefox
 ```
 
@@ -202,11 +245,13 @@ Converge starts these with the packaged config from
 | Waybar | `~/.config/converge/waybar/config.jsonc`, `style.css` |
 | swaync | `~/.config/converge/swaync/config.json`, `style.css` |
 | rofi | `~/.config/converge/rofi/config.rasi` |
+| volume indicator | `~/.config/converge/swayosd/style.css` |
 | hyprlock | `~/.config/converge/hypr/hyprlock.conf` |
 | hypridle | `~/.config/converge/hypr/hypridle.conf` |
 
-You can copy the packaged file and edit it, or build on it so updates still
-reach you: Waybar supports `"include": ["/usr/share/converge/config/waybar/config.jsonc"]`,
+The packaged files use `#3584e4` for the accent color; Converge replaces it
+with your GNOME accent when it starts them, in your copies too. You can copy
+the packaged file and edit it, or build on it so updates still reach you: Waybar supports `"include": ["/usr/share/converge/config/waybar/config.jsonc"]`,
 the CSS files `@import url("/usr/share/converge/config/waybar/style.css");`,
 and rofi `@import "/usr/share/converge/config/rofi/config.rasi"`.
 

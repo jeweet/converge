@@ -332,10 +332,19 @@ DOC_FAIL=0
 DOC_WARN=0
 QUIET=""
 
-ok()   { [ -n "$QUIET" ] || echo "  ${C_OK}✓${C_OFF} $*"; }
-warn() { DOC_WARN=$((DOC_WARN + 1)); [ -n "$QUIET" ] || echo "  ${C_WARN}!${C_OFF} $*"; }
-fail() { DOC_FAIL=$((DOC_FAIL + 1)); [ -n "$QUIET" ] || echo "  ${C_FAIL}✗${C_OFF} $*"; }
-section() { [ -n "$QUIET" ] || heading "$*"; }
+PLAIN=""
+SECTION=""
+# --plain: "status<TAB>section<TAB>message" per check (used by the app)
+report() {
+    # $1 = ok|warn|fail, $2 = symbol, $3 = color, rest = message
+    st=$1; sym=$2; col=$3; shift 3
+    if [ -n "$PLAIN" ]; then printf '%s\t%s\t%s\n' "$st" "$SECTION" "$*"
+    elif [ -z "$QUIET" ]; then echo "  ${col}${sym}${C_OFF} $*"; fi
+}
+ok()   { report ok "✓" "$C_OK" "$@"; }
+warn() { DOC_WARN=$((DOC_WARN + 1)); report warn "!" "$C_WARN" "$@"; }
+fail() { DOC_FAIL=$((DOC_FAIL + 1)); report fail "✗" "$C_FAIL" "$@"; }
+section() { SECTION=$*; [ -n "$QUIET" ] || [ -n "$PLAIN" ] || heading "$*"; }
 
 need_cmd() {
     # $1 = command, $2 = package, $3 = fail|warn, $4 = what for
@@ -347,7 +356,10 @@ need_cmd() {
 }
 
 cmd_doctor() {
-    [ "$1" = "--quiet" ] && QUIET=1
+    case "$1" in
+        --quiet) QUIET=1 ;;
+        --plain) PLAIN=1 ;;
+    esac
     converge_load_conf
     c=${XDG_CONFIG_HOME:-$HOME/.config}
 
@@ -364,6 +376,8 @@ cmd_doctor() {
     need_cmd phosh-session phosh fail
     need_cmd kgx gnome-console warn "Super+Enter opens no terminal"
     need_cmd wpctl wireplumber warn "no audio switching"
+    need_cmd swayosd-server swayosd warn "no volume indicator"
+    need_cmd playerctl playerctl warn "media keys do not control players"
     if python3 -c 'import gi; gi.require_version("Adw", "1"); from gi.repository import Adw' 2>/dev/null; then
         ok "python3 + libadwaita (Converge app)"
     else
@@ -447,7 +461,7 @@ cmd_doctor() {
         warn "~/.config/converge/converge.conf missing (defaults are used)"
     fi
     for f in hypr/hyprlock.conf hypr/hypridle.conf waybar/config.jsonc waybar/style.css \
-             swaync/config.json swaync/style.css rofi/config.rasi; do
+             swaync/config.json swaync/style.css rofi/config.rasi swayosd/style.css; do
         [ -e "$c/converge/$f" ] && ok "override in use: ~/.config/converge/$f"
     done
 
@@ -463,7 +477,7 @@ cmd_doctor() {
         ok "no leftovers"
     fi
 
-    if [ -z "$QUIET" ]; then
+    if [ -z "$QUIET" ] && [ -z "$PLAIN" ]; then
         echo
         if [ "$DOC_FAIL" -gt 0 ]; then
             echo "${C_FAIL}$DOC_FAIL problem(s)${C_OFF}, $DOC_WARN warning(s)."
@@ -485,7 +499,7 @@ Converge $CONVERGE_VERSION - Phosh on the phone, Hyprland when docked
 Usage: $ME <command>
 
   setup [--yes]          finish the installation (run as your normal user)
-  doctor [--quiet]       check the installation and report problems
+  doctor [--quiet|--plain]  check the installation and report problems
   status                 show what is active right now
   dock                   switch to desktop mode (a display must be connected)
   phone                  leave desktop mode, back to Phosh

@@ -13,7 +13,7 @@
 @define-color ph-fg        #ffffff;   /* text                         */
 @define-color ph-fg-dim    rgba(255, 255, 255, 0.7);
 @define-color ph-border    rgba(255, 255, 255, 0.08);
-@define-color ph-accent    #3584e4;   /* GNOME blue                   */
+@define-color ph-accent    #3584e4;   /* accent (follows GNOME)       */
 @define-color ph-critical  #e01b24;   /* red for critical notifications */
 
 * {

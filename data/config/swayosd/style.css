@@ -1,0 +1,55 @@
+/*
+ * Converge: GNOME-style volume/brightness indicator for swayosd
+ * (packaged default). The accent color follows GNOME.
+ * Override: copy to ~/.config/converge/swayosd/style.css
+ */
+
+window#osd {
+  background: transparent;
+}
+
+window#osd #container {
+  margin: 0;
+  padding: 14px 22px;
+  min-width: 260px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(30, 30, 30, 0.92);
+}
+
+window#osd image,
+window#osd label {
+  color: #ffffff;
+  font-family: "Adwaita Sans", "Cantarell", sans-serif;
+  font-size: 14px;
+}
+
+window#osd image {
+  margin-right: 12px;
+}
+
+window#osd image:disabled,
+window#osd progressbar:disabled {
+  opacity: 0.5;
+}
+
+window#osd progressbar {
+  min-height: 6px;
+  border-radius: 999px;
+  background: transparent;
+  border: none;
+}
+
+window#osd trough {
+  min-height: inherit;
+  border-radius: inherit;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+window#osd progress {
+  min-height: inherit;
+  border-radius: inherit;
+  border: none;
+  background: #3584e4;
+}
